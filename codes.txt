@@ -1,0 +1,9 @@
+0x00 - Error code (extra information necessary)
+0x01 - Initiate check sequence.
+0x02 - Check sequence response.
+0x03 - Registration data.
+0x04 - Registration acknowledged.
+0x05 - Login data.
+0x06 - Login acknowledged.
+...
+0x20 - Quit
