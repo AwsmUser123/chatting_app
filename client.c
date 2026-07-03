@@ -63,6 +63,38 @@ int main() {
     switch (response) {
         case 1: {
             // do account creation stuff
+            int data_len;
+            char account_name[NAME_LEN];
+            char account_password[PASS_LEN];
+
+            printf("Please enter your new account name: ");
+            if (scanf("%s", account_name) < 1)
+                handle_error("Failed to read account name.\n");
+            if (!credentials_valid(account_name))
+                handle_error("Invalid account name.\n");
+
+            printf("Please enter your new password: ");
+            if (scanf("%s", account_password) < 1)
+                handle_error("Failed to read password.\n");
+            if (!credentials_valid(account_password))
+                handle_error("Invalid password.\n");
+            buf[0] = 0x03;
+            data_len = strlen(account_name) + strlen(account_password) + 1;
+            strcpy(buf+1, account_name);
+            buf[strlen(account_name)+1] = ':';
+            strcpy(buf+strlen(account_name)+2, account_password);
+            if (write(server, buf, 1) < 1)
+                handle_error("Failed to send data to the server.\n");
+            if (write(server, &data_len, 4) < 4)
+                handle_error("Failed to send data to the server.\n");
+            if (write(server, buf+1, data_len) < data_len)
+                handle_error("Failed to send data to the server.\n");
+            if (read(server, buf, 1) < 1)
+                handle_error("Failed to receive data from the server.\n");
+            if (buf[0] == 0x04)
+                printf("Your account has been successfully created!\n");
+            else
+                handle_error("Account creation failed failed.\n");
             break;
         }
         case 2: {

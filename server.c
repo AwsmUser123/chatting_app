@@ -18,6 +18,8 @@
 
 void handle_error(char *);
 void *handle_client(void *);
+int login_user(int);
+void register_user(int);
 
 int main() {
     struct sockaddr_in addr;
@@ -72,7 +74,6 @@ void handle_error(char *msg) {
 
 void *handle_client(void *arg) {
     int client = *((int *)arg);
-    int index;
     int client_id = -1;
     char buf[BUF_SIZE];
 
@@ -91,57 +92,14 @@ void *handle_client(void *arg) {
                 }
                 break;
             }
+            case 0x03: {
+                register_user(client);
+                break;
+            }
             case 0x05: {
-                int data_len;
-                FILE *accounts;
-                char *res;
-                char account_name[NAME_LEN];
-                char account_password[PASS_LEN];
-
                 if (client_id != -1)
                     handle_error("The client is already logged in.\n");
-
-                if (read(client, &data_len, 4) < 4)
-                    handle_error("Failed to read data size.\n");
-                if (data_len >= BUF_SIZE)
-                    handle_error("Data provided by client is too big.\n");
-                if (read(client, buf, data_len) < data_len)
-                    handle_error("Failed to receive login data from client.\n");
-                buf[data_len] = '\0';
-
-                res = strtok(buf, ":\n");
-                if (res == NULL)
-                    handle_error("Failed to read account name from client.\n");
-                strcpy(account_name, res);
-                res = strtok(NULL, ":\n");
-                if (res == NULL)
-                    handle_error("Failed to read account password from client.\n");
-                strcpy(account_password, res);
-
-                if ((accounts = fopen("accounts.txt", "r")) == NULL)
-                    handle_error("Failed to open accounts file.\n");
-                index = 0;
-                while (fgets(buf, BUF_SIZE, accounts) != NULL) {
-                    res = strtok(buf, ":\n");
-                    if (res == NULL)
-                        handle_error("Failed to read account name from account file.\n");
-                    if (!strcmp(res, account_name)) {
-                        res = strtok(NULL, ":\n");
-                        if (res == NULL)
-                            handle_error("Failed to read account password from account file.\n");
-                        if (!strcmp(res, account_password)) {
-                            client_id = index;
-                            buf[0] = 0x06;
-                            if (write(client, buf, 1) < 1)
-                                handle_error("Failed to send login confirmation to client.\n");
-                            break;
-                        }
-                        else
-                            handle_error("Wrong password.\n");
-                    }
-                }
-                if (client_id == -1)
-                    handle_error("Account with that username does not exist.\n");
+                client_id = login_user(client);
                 break;
             }
             case 0x20: {
@@ -151,6 +109,102 @@ void *handle_client(void *arg) {
             default: {
                 handle_error("Server received unknown operation code.\n");
             }
+            //USED TEMPORARILY TO AVOID ERRORS. REMOVE AS SOON AS POSSIBLE
+            pthread_exit(NULL);
         }
     }
+}
+
+int login_user(int client_fd) {
+    int data_len;
+    int index;
+    FILE *accounts;
+    char *res;
+    char buf[BUF_SIZE];
+    char account_name[NAME_LEN];
+    char account_password[PASS_LEN];
+
+    if (read(client_fd, &data_len, 4) < 4)
+        handle_error("Failed to read data size.\n");
+    if (data_len >= BUF_SIZE)
+        handle_error("Data provided by client is too big.\n");
+    if (read(client_fd, buf, data_len) < data_len)
+        handle_error("Failed to receive login data from client.\n");
+    buf[data_len] = '\0';
+
+    res = strtok(buf, ":\n");
+    if (res == NULL)
+        handle_error("Failed to read account name from client.\n");
+    strcpy(account_name, res);
+    res = strtok(NULL, ":\n");
+    if (res == NULL)
+        handle_error("Failed to read account password from client.\n");
+    strcpy(account_password, res);
+
+    if ((accounts = fopen("accounts.txt", "r")) == NULL)
+        handle_error("Failed to open accounts file.\n");
+    index = -1;
+    for (int i = 0; fgets(buf, BUF_SIZE, accounts) != NULL; i++) {
+        res = strtok(buf, ":\n");
+        if (res == NULL)
+            handle_error("Failed to read account name from account file.\n");
+        if (!strcmp(res, account_name)) {
+            res = strtok(NULL, ":\n");
+            if (res == NULL)
+                handle_error("Failed to read account password from account file.\n");
+            if (!strcmp(res, account_password)) {
+                index = i;
+                buf[0] = 0x06;
+                if (write(client_fd, buf, 1) < 1)
+                    handle_error("Failed to send login confirmation to client.\n");
+                break;
+            }
+            else
+                handle_error("Wrong password.\n");
+        }
+    }
+    if (index == -1)
+        handle_error("Account with that username does not exist.\n");
+    return index;
+}
+
+void register_user(int client_fd) {
+        int data_len;
+        FILE *accounts;
+        char *res;
+        char buf[BUF_SIZE];
+        char account_name[NAME_LEN];
+        char account_password[PASS_LEN];
+
+        if (read(client_fd, &data_len, 4) < 4)
+            handle_error("Failed to read data size.\n");
+        if (data_len >= BUF_SIZE)
+            handle_error("Data provided by client is too big.\n");
+        if (read(client_fd, buf, data_len) < data_len)
+            handle_error("Failed to receive login data from client.\n");
+        buf[data_len] = '\0';
+
+        res = strtok(buf, ":\n");
+        if (res == NULL)
+            handle_error("Failed to read account name from client.\n");
+        strcpy(account_name, res);
+        res = strtok(NULL, ":\n");
+        if (res == NULL)
+            handle_error("Failed to read account password from client.\n");
+        strcpy(account_password, res);
+
+        if ((accounts = fopen("accounts.txt", "r+")) == NULL)
+            handle_error("Failed to open accounts file.\n");
+        while (fgets(buf, BUF_SIZE, accounts) != NULL) {
+            res = strtok(buf, ":\n");
+            if (res == NULL)
+                handle_error("Failed to read account name from account file.\n");
+            if (!strcmp(res, account_name))
+                handle_error("Account with that username already exists.\n");
+        }
+        if (fprintf(accounts, "%s:%s\n", account_name, account_password) < 0)
+            handle_error("Failed to write new data to the accounts file.\n");
+        buf[0] = 0x04;
+        if (write(client_fd, buf, 1) < 1)
+            handle_error("Failed to send confirmation to client.\n");
 }
