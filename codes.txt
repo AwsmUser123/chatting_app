@@ -1,9 +1,12 @@
-0x00 - Error code (extra information necessary)
+0x00 - Error code (extra information necessary).
 0x01 - Initiate check sequence.
-0x02 - Check sequence response.
+0x02 - OK.
 0x03 - Registration data.
-0x04 - Registration acknowledged.
 0x05 - Login data.
-0x06 - Login acknowledged.
+0x07 - Create a chat.
+0x09 - Join a chat.
 ...
-0x20 - Quit
+0x10 - List all chats.
+...
+0x20 - Quit.
+NOTE: it would actually be better to have a unified single OK code, and therefore I'm planning to change this entire layout a bit later.
