@@ -19,4 +19,4 @@ Listen for incoming information.
 If received, update corresponding chat file.
 Afterwards, send the new data to the listening applications.
 
-Let's start simple: writing client and echoing server.
+Current step: automatic chat updates for online members. UI integration. List of online users.

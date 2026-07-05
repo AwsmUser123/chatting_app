@@ -2,4 +2,4 @@ transfer the error messages to the client.
 start checking for errors.
 do something about code size.
 transfer some stuff to headers.
-start thinking about UI.
+finish the UI.

@@ -1,4 +1,4 @@
-0x00 - Error code (extra information necessary).
+0x00 - Error code (with extra information).
 0x01 - Initiate check sequence.
 0x02 - OK.
 
