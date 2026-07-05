@@ -24,6 +24,12 @@ void handle_error(char *);
 int handle_response(int);
 int credentials_valid(char *);
 
+void initialize_ncurses();
+void welcome_screen();
+int login_screen();
+int join_screen();
+int chat_screen();
+
 int main() {
     struct sockaddr_in addr;
     int server;
@@ -35,7 +41,8 @@ int main() {
         IN_CHAT
     } current_state = LOGGED_OUT;
 
-    clear();
+    initialize_ncurses();
+
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1) {
         handle_error("Socket creation failed.\n");
@@ -48,12 +55,6 @@ int main() {
     if (connect(server, (struct sockaddr *)(&addr), sizeof(addr)) == -1) {
         handle_error("Failed to connect to server.\n");
     }
-    
-    initscr();
-    cbreak();
-    //noecho();
-    intrflush(stdscr, FALSE);
-    keypad(stdscr, TRUE);
 
     printw("Welcome to the simple chatting application!\n");
     printw("Running the initial test...\n");
@@ -313,3 +314,16 @@ int credentials_valid(char *str) {
     }
     return 1;
 }
+
+void initialize_ncurses() {
+    initscr();
+    cbreak();
+    noecho();
+    intrflush(stdscr, FALSE);
+    keypad(stdscr, TRUE);
+}
+
+void welcome_screen();
+int login_screen();
+int join_screen();
+int chat_screen();
