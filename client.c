@@ -17,9 +17,11 @@
 #define NAME_LEN 128
 #define PASS_LEN 128
 
+void send_code(int, char);
+void send_message(int, char *);
 void print_message(int);
 void handle_error(char *);
-void handle_response(int);
+int handle_response(int);
 int credentials_valid(char *);
 
 int main() {
@@ -27,6 +29,11 @@ int main() {
     int server;
     char buf[BUF_SIZE];
     int response;
+    enum state {
+        LOGGED_OUT,
+        LOGGED_IN,
+        IN_CHAT
+    } current_state = LOGGED_OUT;
 
     clear();
     server = socket(AF_INET, SOCK_STREAM, 0);
@@ -34,7 +41,7 @@ int main() {
         handle_error("Socket creation failed.\n");
     }
     addr.sin_family = AF_INET;
-    addr.sin_port = SERV_PORT;
+    addr.sin_port = htons(SERV_PORT);
     if (inet_aton(SERV_ADDR, &(addr.sin_addr)) == 0) {
         handle_error("Invalid server address.\n");
     }
@@ -42,157 +49,241 @@ int main() {
         handle_error("Failed to connect to server.\n");
     }
     
-    printf("Welcome to the simple chatting application!\n");
-    printf("Running the initial test...\n");
+    initscr();
+    cbreak();
+    //noecho();
+    intrflush(stdscr, FALSE);
+    keypad(stdscr, TRUE);
 
-    buf[0] = 0x01;
-    if (write(server, buf, 1) < 1)
-        handle_error("Failed to send data to the server.\n");
+    printw("Welcome to the simple chatting application!\n");
+    printw("Running the initial test...\n");
+
+    send_code(server, 0x01);
     handle_response(server);
 
     int running = 1;
-    do {
-        printf("What would you like to do?\n");
-        printf("1) - Create an account.\n");
-        printf("2) - Log into an account.\n");
-        printf("3) - Create a new chat.\n");
-        printf("4) - Join an existing chat.\n");
-        printf("5) - List all existing chats.\n");
-        printf("6) - Quit.\n");
-        if (scanf("%d", &response) < 1)
-            handle_error("Failed to read a response from user.\n");
+    while (running) {
+        clear();
+        refresh();
+        switch(current_state) {
+            case LOGGED_OUT: {
+                printw("What would you like to do?\n");
+                printw("1) - Create an account.\n");
+                printw("2) - Log into an account.\n");
+                printw("3) - Quit.\n");
+                if (scanf("%d", &response) < 1)
+                    handle_error("Failed to read a response from user.\n");
 
-        switch (response) {
-            case 1: {
-                // do account creation stuff
-                int data_len;
-                char account_name[NAME_LEN];
-                char account_password[PASS_LEN];
+                switch (response) {
+                    case 1: {
+                        char account_name[NAME_LEN];
+                        char account_password[PASS_LEN];
 
-                printf("Please enter your new account name: ");
-                if (scanf("%s", account_name) < 1)
-                    handle_error("Failed to read account name.\n");
-                if (!credentials_valid(account_name))
-                    handle_error("Invalid account name.\n");
+                        printw("Please enter your new account name: ");
+                        if (scanf("%s", account_name) < 1)
+                            handle_error("Failed to read account name.\n");
+                        if (!credentials_valid(account_name))
+                            handle_error("Invalid account name.\n");
 
-                printf("Please enter your new password: ");
-                if (scanf("%s", account_password) < 1)
-                    handle_error("Failed to read password.\n");
-                if (!credentials_valid(account_password))
-                    handle_error("Invalid password.\n");
-                buf[0] = 0x03;
-                data_len = strlen(account_name) + strlen(account_password) + 1;
-                strcpy(buf+1, account_name);
-                buf[strlen(account_name)+1] = ':';
-                strcpy(buf+strlen(account_name)+2, account_password);
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                if (write(server, &data_len, 4) < 4)
-                    handle_error("Failed to send data to the server.\n");
-                if (write(server, buf+1, data_len) < data_len)
-                    handle_error("Failed to send data to the server.\n");
-                handle_response(server);
-                break;
-            }
-            case 2: {
-                // do login stuff
-                int data_len;
-                char account_name[NAME_LEN];
-                char account_password[PASS_LEN];
+                        printw("Please enter your new password: ");
+                        if (scanf("%s", account_password) < 1)
+                            handle_error("Failed to read password.\n");
+                        if (!credentials_valid(account_password))
+                            handle_error("Invalid password.\n");
 
-                printf("Please enter your account name: ");
-                if (scanf("%s", account_name) < 1)
-                    handle_error("Failed to read account name.\n");
-                if (!credentials_valid(account_name))
-                    handle_error("Invalid account name.\n");
+                        strcpy(buf, "");
+                        strcat(buf, account_name);
+                        strcat(buf, ":");
+                        strcat(buf, account_password);
 
-                printf("Please enter your password: ");
-                if (scanf("%s", account_password) < 1)
-                    handle_error("Failed to read password.\n");
-                if (!credentials_valid(account_password))
-                    handle_error("Invalid password.\n");
-                buf[0] = 0x05;
-                data_len = strlen(account_name) + strlen(account_password) + 1;
-                strcpy(buf+1, account_name);
-                buf[strlen(account_name)+1] = ':';
-                strcpy(buf+strlen(account_name)+2, account_password);
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                if (write(server, &data_len, 4) < 4)
-                    handle_error("Failed to send data to the server.\n");
-                if (write(server, buf+1, data_len) < data_len)
-                    handle_error("Failed to send data to the server.\n");
-                handle_response(server);
+                        send_code(server, 0x03);
+                        send_message(server, buf);
+                        if (handle_response(server) == 0)
+                            current_state = LOGGED_IN;
+                        break;
+                    }
+                    case 2: {
+                        char account_name[NAME_LEN];
+                        char account_password[PASS_LEN];
+
+                        printw("Please enter your account name: ");
+                        if (scanf("%s", account_name) < 1)
+                            handle_error("Failed to read account name.\n");
+                        if (!credentials_valid(account_name))
+                            handle_error("Invalid account name.\n");
+
+                        printw("Please enter your password: ");
+                        if (scanf("%s", account_password) < 1)
+                            handle_error("Failed to read password.\n");
+                        if (!credentials_valid(account_password))
+                            handle_error("Invalid password.\n");
+
+                        strcpy(buf, "");
+                        strcat(buf, account_name);
+                        strcat(buf, ":");
+                        strcat(buf, account_password);
+
+                        send_code(server, 0x05);
+                        send_message(server, buf);
+                        if (handle_response(server) == 0)
+                            current_state = LOGGED_IN;
+                        break;
+                    }
+                    case 3: {
+                        send_code(server, 0x20);
+                        running = 0;
+                        break;
+                    }
+                    default: {
+                        printw("Unknown code.\n");
+                    }
+                }
                 break;
             }
-            case 3: {
-                // do chat creation stuff
-                buf[0] = 0x07;
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                print_message(server);
-                handle_response(server);
+            case LOGGED_IN: {
+                printw("What would you like to do?\n");
+                printw("1) - Create a chat.\n");
+                printw("2) - Join a chat.\n");
+                printw("3) - List all chats.\n");
+                printw("4) - Log out.\n");
+                printw("5) - Quit.\n");
+                if (scanf("%d", &response) < 1)
+                    handle_error("Failed to read a response from user.\n");
+
+                switch (response) {
+                    case 1: {
+                        send_code(server, 0x07);
+                        print_message(server);
+                        if (handle_response(server) == 0)
+                            current_state = IN_CHAT;
+                        break;
+                    }
+                    case 2: {
+                        send_code(server, 0x09);
+                        long chat_id;
+                        printw("Please enter the ID of the chat you would like to join: ");
+                        if (scanf("%ld", &chat_id) < 1)
+                            handle_error("Failed to read the ID of the chat from the user.\n");
+                        if (write(server, &chat_id, 8) < 8)
+                            handle_error("Failed to send data to the server.\n");
+                        if (handle_response(server) == 0)
+                            current_state = IN_CHAT;
+                        break;
+                    }
+                    case 3: {
+                        send_code(server, 0x10);
+                        print_message(server);
+                        break;
+                    }
+                    case 4: {
+                        send_code(server, 0x06);
+                        if (handle_response(server) == 0)
+                            current_state = LOGGED_OUT;
+                        break;
+                    }
+                    case 5: {
+                        send_code(server, 0x06);
+                        handle_response(server);
+                        send_code(server, 0x20);
+                        running = 0;
+                        break;
+                    }
+                    default: {
+                        printw("Unknown code.\n");
+                    }
+                }
                 break;
             }
-            case 4: {
-                // do chat joining stuff
-                buf[0] = 0x09;
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                long chat_id;
-                printf("Please enter the ID of the chat you would like to join: ");
-                if (scanf("%ld", &chat_id) < 1)
-                    handle_error("Failed to read the ID of the chat from the user.\n");
-                if (write(server, &chat_id, 4) < 4)
-                    handle_error("Failed to send data to the server.\n");
-                handle_response(server);
+            case IN_CHAT: {
+                printw("What would you like to do?\n");
+                printw("1) - Send a message.\n");
+                printw("2) - List all messages.\n");
+                printw("3) - Leave chat.\n");
+                printw("4) - Quit.\n");
+                if (scanf("%d", &response) < 1)
+                    handle_error("Failed to read a response from user.\n");
+
+                switch (response) {
+                    case 1: {
+                        send_code(server, 0x0b);
+                        printw("Please enter your message:\n");
+                        while (getchar() != '\n');
+                        if (fgets(buf, BUF_SIZE, stdin) == NULL)
+                            handle_error("Failed to read the message from the user.\n");
+                        send_message(server, buf);
+                        handle_response(server);
+                        break;
+                    }
+                    case 2: {
+                        send_code(server, 0x0d);
+                        print_message(server);
+                        break;
+                    }
+                    case 3: {
+                        send_code(server, 0x0a);
+                        if (handle_response(server) == 0)
+                            current_state = LOGGED_IN;
+                        break;
+                    }
+                    case 4: {
+                        send_code(server, 0x0a);
+                        handle_response(server);
+                        send_code(server, 0x06);
+                        handle_response(server);
+                        send_code(server, 0x20);
+                        running = 0;
+                        break;
+                    }
+                    default: {
+                        printw("Unknown code.\n");
+                    }
+                }
                 break;
-            }
-            case 5: {
-                // list all available chats
-                buf[0] = 0x10;
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                print_message(server);
-                break;
-            }
-            case 6: {
-                // quit
-                buf[0] = 0x20;
-                if (write(server, buf, 1) < 1)
-                    handle_error("Failed to send data to the server.\n");
-                printf("Thank you for using the application.\n");
-                running = 0;
-                break;
-            }
-            default: {
-                handle_error("Unknown code.\n");
             }
         }
-    } while (running);
+    }
+    printw("Thank you for using the chatting application!\n");
+    endwin();
 
     return 0;
 }
 
+void send_code(int server_fd, char code) {
+    if (write(server_fd, &code, 1) < 1)
+        handle_error("Failed to send data to the server.\n");
+}
+
+void send_message(int server_fd, char *msg) {
+    int data_len;
+    data_len = strlen(msg)+1;
+    if (write(server_fd, &data_len, 4) < 4)
+        handle_error("Failed to send the data to the server.\n");
+    if (write(server_fd, msg, data_len) < data_len)
+        handle_error("Failed to send the data to the server.\n");
+}
+
 void print_message(int server_fd) {
     char buf[BUF_SIZE];
-    int data_len;
-    if (read(server_fd, &data_len, 4) < 4)
+    int data_len = 0;
+    int res;
+    if ((res = read(server_fd, &data_len, 4)) < 4) {
         handle_error("Failed to read the data from the server.\n");
+    }
     if (read(server_fd, buf, data_len) < data_len)
         handle_error("Failed to read the data from the server.\n");
-    puts(buf);
+    printw("%s", buf);
 }
 
 void handle_error(char *msg) {
     if (errno != 0)
-        perror(msg);
+        printw("%s\n\t%s", msg, strerror(errno));
     else
-        fprintf(stderr, "%s", msg);
+        printw("%s", msg);
+    endwin();
     exit(EXIT_FAILURE);
 }
 
-void handle_response(int server_fd) {
+int handle_response(int server_fd) {
     char buf[BUF_SIZE];
     if (read(server_fd, buf, 1) < 1)
         handle_error("Failed to read data from server.\n");
@@ -202,13 +293,16 @@ void handle_response(int server_fd) {
             handle_error("Failed to read data from server.\n");
         if (read(server_fd, buf, data_len) < data_len)
             handle_error("Failed to read data from server.\n");
-        printf("ERROR: %s", buf);
+        printw("ERROR: %s", buf);
+        return 1;
     }
     else if (buf[0] == 0x02) {
-        printf("OK!\n");
+        return 0;
     }
-    else
+    else {
         handle_error("Unknown response code from server.\n");
+        return -1;
+    }
 }
 
 int credentials_valid(char *str) {
