@@ -25,6 +25,7 @@ int handle_response(int);
 int credentials_valid(char *);
 
 void initialize_ncurses();
+void display_error(char *str);
 void welcome_screen();
 int login_screen();
 int join_screen();
@@ -42,6 +43,7 @@ int main() {
     } current_state = LOGGED_OUT;
 
     initialize_ncurses();
+    welcome_screen();
 
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1) {
@@ -56,9 +58,6 @@ int main() {
         handle_error("Failed to connect to server.\n");
     }
 
-    printw("Welcome to the simple chatting application!\n");
-    printw("Running the initial test...\n");
-
     send_code(server, 0x01);
     handle_response(server);
 
@@ -68,29 +67,14 @@ int main() {
         refresh();
         switch(current_state) {
             case LOGGED_OUT: {
-                printw("What would you like to do?\n");
-                printw("1) - Create an account.\n");
-                printw("2) - Log into an account.\n");
-                printw("3) - Quit.\n");
-                if (scanf("%d", &response) < 1)
-                    handle_error("Failed to read a response from user.\n");
+                response = account_screen();
 
                 switch (response) {
                     case 1: {
                         char account_name[NAME_LEN];
                         char account_password[PASS_LEN];
 
-                        printw("Please enter your new account name: ");
-                        if (scanf("%s", account_name) < 1)
-                            handle_error("Failed to read account name.\n");
-                        if (!credentials_valid(account_name))
-                            handle_error("Invalid account name.\n");
-
-                        printw("Please enter your new password: ");
-                        if (scanf("%s", account_password) < 1)
-                            handle_error("Failed to read password.\n");
-                        if (!credentials_valid(account_password))
-                            handle_error("Invalid password.\n");
+                        credentials_screen(account_name, account_password);
 
                         strcpy(buf, "");
                         strcat(buf, account_name);
@@ -107,17 +91,7 @@ int main() {
                         char account_name[NAME_LEN];
                         char account_password[PASS_LEN];
 
-                        printw("Please enter your account name: ");
-                        if (scanf("%s", account_name) < 1)
-                            handle_error("Failed to read account name.\n");
-                        if (!credentials_valid(account_name))
-                            handle_error("Invalid account name.\n");
-
-                        printw("Please enter your password: ");
-                        if (scanf("%s", account_password) < 1)
-                            handle_error("Failed to read password.\n");
-                        if (!credentials_valid(account_password))
-                            handle_error("Invalid password.\n");
+                        credentials_screen(account_name, account_password);
 
                         strcpy(buf, "");
                         strcat(buf, account_name);
@@ -142,14 +116,7 @@ int main() {
                 break;
             }
             case LOGGED_IN: {
-                printw("What would you like to do?\n");
-                printw("1) - Create a chat.\n");
-                printw("2) - Join a chat.\n");
-                printw("3) - List all chats.\n");
-                printw("4) - Log out.\n");
-                printw("5) - Quit.\n");
-                if (scanf("%d", &response) < 1)
-                    handle_error("Failed to read a response from user.\n");
+                response = join_screen();
 
                 switch (response) {
                     case 1: {
