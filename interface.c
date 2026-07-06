@@ -6,104 +6,25 @@
 #define TMP_LEN 128
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
-void print_frame();
-void print_middle(int y, char *str);
-void initialize_ncurses();
-void display_error(char *str);
-
-void welcome_screen();
-int account_screen();
-void credentials_screen(char *, char *);
-
-int loggedin_screen();
-long join_chat();
-
-int chats_screen();
-
-void goodbye_screen();
-
-int main() {
-    int res;
-    char username[TMP_LEN];
-    char password[TMP_LEN];
-
-    initialize_ncurses();
-    welcome_screen();
-
-    //done
-    res = account_screen();
-    switch (res) {
-        case 1: {
-            //done
-            credentials_screen(username, password);
-            break;
-        }
-        case 2: {
-            //done
-            credentials_screen(username, password);
-            break;
-        }
-        case 3: {
-            //done
-            goodbye_screen();
-            exit(EXIT_SUCCESS);
+void print_frame() {
+    int i, j;
+    attron(COLOR_PAIR(1));
+    for (j = 0; j < 3; j++ ) {
+        for (i = 0; i < COLS; i++) {
+            mvaddch(j, i, ' ');
+            mvaddch(LINES-1-j, i, ' ');
         }
     }
-
-    // 4/5
-    res = loggedin_screen();
-    switch (res) {
-        case 1: {
-            //done
-            break;
-        }
-        case 2: {
-            //done
-            long id;
-            id = join_chat();
-            break;
-        }
-        case 3: {
-            //list all chats
-            break;
-        }
-        case 4: {
-            //done
-            goodbye_screen();
-            exit(EXIT_SUCCESS);
-        }
-        case 5: {
-            //done
-            goodbye_screen();
-            exit(EXIT_SUCCESS);
-        }
+    for (i = 0; i < LINES-1; i++) {
+        mvaddch(i, 0, ' ');
+        mvaddch(i, COLS-1, ' ');
     }
+    attroff(COLOR_PAIR(1));
+}
 
-    //TODO: chats_screen
-    res = chats_screen();
-    switch (res) {
-        case 1: {
-            //TODO: send a messgae
-            break;
-        }
-        case 2: {
-            //TODO: list all messages
-            break;
-        }
-        case 3: {
-            //done
-            goodbye_screen();
-            exit(EXIT_SUCCESS);
-        }
-        case 4: {
-            //done
-            goodbye_screen();
-            exit(EXIT_SUCCESS);
-        }
-    }
-
-    goodbye_screen();
-    return 0;
+void print_middle(int y, char *str) {
+    int x = max((COLS - strlen(str))/2, 0);
+    mvaddstr(y, x, str);
 }
 
 void initialize_ncurses() {
@@ -118,23 +39,37 @@ void initialize_ncurses() {
     init_pair(2, COLOR_YELLOW, COLOR_WHITE);
 }
 
-void print_frame() {
-    int i, j;
-    for (j = 0; j < 3; j++ ) {
-        for (i = 0; i < COLS; i++) {
-            mvaddch(j, i, ' ');
-            mvaddch(LINES-1-j, i, ' ');
-        }
-    }
-    for (i = 1; i < LINES-1; i++) {
-        mvaddch(i, 0, ' ');
-        mvaddch(i, COLS-1, ' ');
-    }
-}
+void display_error(char *str) {
+    int x, y;
+    int start_x = 2, start_y = 0, width = COLS-4, height = 3;
+    int pos;
 
-void print_middle(int y, char *str) {
-    int x = max((COLS - strlen(str))/2, 0);
-    mvaddstr(y, x, str);
+    x = 0, y = 0, pos = 0;
+    attron(COLOR_PAIR(2));
+    while (str[pos]) {
+        if (x == width) {
+            x %= width;
+            y++;
+        }
+        if (y >= height)
+            break;
+        if (str[pos] == '\n') {
+            if (x != 0) {
+                y++;
+                x = 0;
+            }
+            pos++;
+            continue;
+        }
+        if (isprint(str[pos]))
+            mvaddch(start_y + y, start_x + x, str[pos]);
+        x++;
+        pos++;
+    }
+    attroff(COLOR_PAIR(2));
+    while (getch() != '\n');
+
+    refresh();
 }
 
 void welcome_screen() {
@@ -151,6 +86,7 @@ int account_screen() {
     selected = 0;
     no_options = 3;
 
+    c = 0;
     do {
         clear();
         print_middle(4, "What would you like to do?");
@@ -177,7 +113,6 @@ int account_screen() {
         if (selected == 2)
             attroff(COLOR_PAIR(2));
 
-        attron(COLOR_PAIR(1));
         print_frame();
         attroff(COLOR_PAIR(1));
         refresh();
@@ -216,9 +151,7 @@ void credentials_screen(char *username, char *password) {
         mvprintw(9, 3, "Enter your password:");
         mvprintw(10, 3, ">");
 
-        attron(COLOR_PAIR(1));
         print_frame();
-        attroff(COLOR_PAIR(1));
         refresh();
     } while ((c = getch()) != '\n' || username_len == 0);
     c = 0;
@@ -243,9 +176,7 @@ void credentials_screen(char *username, char *password) {
         mvprintw(9, 3, "Enter your password:");
         mvprintw(10, 3, "> %s", password + offset_password);
 
-        attron(COLOR_PAIR(1));
         print_frame();
-        attroff(COLOR_PAIR(1));
         refresh();
     } while ((c = getch()) != '\n' || password_len == 0);
 }
@@ -255,6 +186,7 @@ int loggedin_screen() {
     selected = 0;
     no_options = 5;
 
+    c = 0;
     do {
         clear();
         print_middle(4, "What would you like to do?");
@@ -293,9 +225,7 @@ int loggedin_screen() {
         if (selected == 4)
             attroff(COLOR_PAIR(2));
 
-        attron(COLOR_PAIR(1));
         print_frame();
-        attroff(COLOR_PAIR(1));
         refresh();
     } while ((c = getch()) != '\n');
     return selected+1;
@@ -306,6 +236,7 @@ long join_chat() {
     size_t id_len, offset_id, max_len;
     c = 0;
     id_len = 0;
+    offset_id = 0;
     max_len = 10;
     char id[12] = {0};
 
@@ -324,7 +255,7 @@ long join_chat() {
             id[id_len] = '\0';
         }
         mvprintw(7, 3, "Please enter the ID of the chat you would like to join:");
-        mvprintw(8, 3, "> %s", id);
+        mvprintw(8, 3, "> %s", id + offset_id);
 
         attron(COLOR_PAIR(1));
         print_frame();
@@ -335,11 +266,159 @@ long join_chat() {
 }
 
 int chats_screen() {
-    printw("What would you like to do?\n");
-    printw("1) - Send a message.\n");
-    printw("2) - List all messages.\n");
-    printw("3) - Leave chat.\n");
-    printw("4) - Quit.\n");
+    int c, selected, no_options;
+    selected = 0;
+    no_options = 4;
+
+    c = 0;
+    do {
+        clear();
+        if (c == KEY_UP)
+            selected = (selected - 1 + no_options) % no_options;
+        else if (c == KEY_DOWN)
+            selected = (selected + 1) % no_options;
+
+        if (selected == 0)
+            attron(COLOR_PAIR(2));
+        print_middle(7, "1) - Send a message.");
+        if (selected == 0)
+            attroff(COLOR_PAIR(2));
+
+        if (selected == 1)
+            attron(COLOR_PAIR(2));
+        print_middle(8, "2) - List all messages.");
+        if (selected == 1)
+            attroff(COLOR_PAIR(2));
+
+        if (selected == 2)
+            attron(COLOR_PAIR(2));
+        print_middle(9, "3) - Leave chat.");
+        if (selected == 2)
+            attroff(COLOR_PAIR(2));
+
+        if (selected == 3)
+            attron(COLOR_PAIR(2));
+        print_middle(10, "4) - Quit.");
+        if (selected == 3)
+            attroff(COLOR_PAIR(2));
+
+        print_frame();
+        attroff(COLOR_PAIR(1));
+        refresh();
+    } while ((c = getch()) != '\n');
+    return selected+1;
+}
+
+void get_message(char *message) {
+    int c;
+    size_t message_len, offset_message, max_len;
+    c = 0;
+    message[0] = '\0';
+    message_len = 0;
+    max_len = COLS - 10;
+
+    do {
+        clear();
+        print_middle(4, "SEND MESSAGE");
+        if (c == '\n' && message_len == 0)
+            print_middle(5, "Message may not be empty.");
+
+        if (isprint(c)) {
+            message[message_len++] = (char)c;
+            message[message_len] = '\0';
+        }
+        else if(c == KEY_BACKSPACE && message_len > 0) {
+            message_len--;
+            message[message_len] = '\0';
+        }
+        offset_message = (message_len > max_len) ? message_len - max_len : 0;
+
+        mvprintw(7, 3, "Enter your message:");
+        mvprintw(8, 3, "> %s", message + offset_message);
+
+        print_frame();
+        refresh();
+    } while ((c = getch()) != '\n' || message_len == 0);
+}
+
+void list_messages(char *str) {
+    int c, x, y;
+    int start_x = 2, start_y = 4, width = COLS - 4, height = LINES - 8;
+    int pos, curr_line = 0, no_lines = 0;
+
+    x = 0, y = 0, pos = 0;
+    while (str[pos]) {
+        if (x == width) {
+            x %= width;
+            y++;
+        }
+        if (str[pos] == '\n') {
+            if (x != 0) {
+                y++;
+                x = 0;
+            }
+            pos++;
+            continue;
+        }
+        x++;
+        pos++;
+    }
+    no_lines = (x == 0 && y == 0) ? 0 : y;
+
+    c = 0;
+    do {
+        clear();
+        if (c == KEY_UP)
+            curr_line = (curr_line > 0) ? curr_line - 1 : 0;
+        else if (c == KEY_DOWN) {
+            curr_line = (curr_line < no_lines - height) ? curr_line + 1 : curr_line;
+        }
+
+        x = 0, y = 0, pos = 0;
+        while (str[pos]) {
+            if (x == width) {
+                x %= width;
+                y++;
+            }
+            if (y >= curr_line)
+                break;
+            if (str[pos] == '\n') {
+                if (x != 0) {
+                    y++;
+                    x = 0;
+                }
+                pos++;
+                continue;
+            }
+            x++;
+            pos++;
+        }
+
+        x = 0, y = 0;
+        while (str[pos]) {
+            if (x == width) {
+                x %= width;
+                y++;
+            }
+            if (y >= height)
+                break;
+            if (str[pos] == '\n') {
+                if (x != 0) {
+                    y++;
+                    x = 0;
+                }
+                pos++;
+                continue;
+            }
+            if (isprint(str[pos]))
+                mvaddch(start_y + y, start_x + x, str[pos]);
+            x++;
+            pos++;
+        }
+
+        print_frame();
+        refresh();
+    } while ((c = getch()) != '\n');
 }
 
 void goodbye_screen() {

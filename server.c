@@ -43,8 +43,8 @@ void send_confirmation(int);
 void send_error(int, char *);
 void handle_error(char *);
 void *handle_client(void *);
-int login_user(int);
-void register_user(int);
+int login_user(int, char *);
+int register_user(int, char *);
 int create_chat(int, int, struct chat_list **);
 int join_chat(int, int, struct chat_list **);
 void get_username(int, char *);
@@ -160,14 +160,17 @@ void *handle_client(void *arg) {
                 break;
             }
             case 0x03: {
-                register_user(client);
+                if (client_id != -1)
+                    send_error(client, "You are already logged in.");
+                else
+                    client_id = register_user(client, buf);
                 break;
             }
             case 0x05: {
                 if (client_id != -1)
                     send_error(client, "You are already logged in.");
                 else
-                    client_id = login_user(client);
+                    client_id = login_user(client, buf);
                 break;
             }
             case 0x06: {
@@ -259,7 +262,7 @@ void *handle_client(void *arg) {
                 while (texts != NULL) {
                     get_username(texts->author, username);
                     strcat(buf, username);
-                    strftime(tmp, BUF_SIZE, " (%b %d %H:%M)", localtime(&(texts->date));
+                    strftime(tmp, BUF_SIZE, " (%b %d %H:%M):\n", localtime(&(texts->date)));
                     strcat(buf, tmp);
                     strcat(buf, texts->text);
                     strcat(buf, "\n");
@@ -270,13 +273,13 @@ void *handle_client(void *arg) {
             }
             case 0x10: {
                 char tmp[BUF_SIZE];
-                char username[NAME_LEN];
                 struct chat_list *curr = *head;
                 strcpy(buf, "");
                 while (curr != NULL) {
                     sprintf(tmp, "Chat ID: %ld\n", curr->chat_id);
                     strcat(buf, tmp);
-                    strcat(buf, "Members: %ld\n", curr->curr_member);
+                    sprintf(tmp, "Members: %d\n", curr->curr_member);
+                    strcat(buf, tmp);
                     curr = curr->next;
                 }
                 send_message(client, buf);
@@ -292,22 +295,14 @@ void *handle_client(void *arg) {
     }
 }
 
-int login_user(int client_fd) {
-    int data_len;
+int login_user(int client_fd, char *buf) {
     int index;
     FILE *accounts;
     char *res;
-    char buf[BUF_SIZE];
     char account_name[NAME_LEN];
     char account_password[PASS_LEN];
 
-    if (read(client_fd, &data_len, 4) < 4)
-        handle_error("Failed to read data size.\n");
-    if (data_len >= BUF_SIZE)
-        handle_error("Data provided by client is too big.\n");
-    if (read(client_fd, buf, data_len) < data_len)
-        handle_error("Failed to receive login data from client.\n");
-    buf[data_len] = '\0';
+    receive_message(client_fd, buf);
 
     res = strtok(buf, ":\n");
     if (res == NULL)
@@ -339,28 +334,23 @@ int login_user(int client_fd) {
             }
         }
     }
+    if (fclose(accounts) != 0)
+        handle_error("Failed to close accounts file.\n");
     if (index == -1)
-        handle_error("Account with that username does not exist.\n");
+        send_error(client_fd, "Account with that username does not exist.");
     else
         send_confirmation(client_fd);
     return index;
 }
 
-void register_user(int client_fd) {
-    int data_len;
+int register_user(int client_fd, char *buf) {
+    int index;
     FILE *accounts;
     char *res;
-    char buf[BUF_SIZE];
     char account_name[NAME_LEN];
     char account_password[PASS_LEN];
 
-    if (read(client_fd, &data_len, 4) < 4)
-        handle_error("Failed to read data size.\n");
-    if (data_len >= BUF_SIZE)
-        handle_error("Data provided by client is too big.\n");
-    if (read(client_fd, buf, data_len) < data_len)
-        handle_error("Failed to receive login data from client.\n");
-    buf[data_len] = '\0';
+    receive_message(client_fd, buf);
 
     res = strtok(buf, ":\n");
     if (res == NULL)
@@ -371,25 +361,28 @@ void register_user(int client_fd) {
         handle_error("Failed to read account password from client.\n");
     strcpy(account_password, res);
 
-    if ((accounts = fopen("accounts.txt", "r+")) == NULL)
+    if ((accounts = fopen("accounts.txt", "w+")) == NULL)
         handle_error("Failed to open accounts file.\n");
-    while (fgets(buf, BUF_SIZE, accounts) != NULL) {
+    
+    for (index = 0; fgets(buf, BUF_SIZE, accounts) != NULL; index++) {
         res = strtok(buf, ":\n");
         if (res == NULL)
             handle_error("Failed to read account name from account file.\n");
         if (!strcmp(res, account_name)) {
             send_error(client_fd, "Account with that username already exists.");
-            return;
+            return -1;
         }
     }
     if (fprintf(accounts, "%s:%s\n", account_name, account_password) < 0)
         handle_error("Failed to write new data to the accounts file.\n");
+    if (fclose(accounts) != 0)
+        handle_error("Failed to close accounts file.\n");
     send_confirmation(client_fd);
+    return index;
 }
 
 int create_chat(int client_fd, int client_id, struct chat_list **head) {
     struct chat_list *curr;
-    char buf[BUF_SIZE];
     if (client_id == -1) {
         send_error(client_fd, "You are not logged in.");
         return -1;
@@ -469,10 +462,12 @@ void get_username(int client_id, char *result) {
             handle_error("Failed to read account name from account file.\n");
         if (i == client_id) {
             strcpy(result, res);
-            return;
+            break;
         }
         i++;
     }
+    if (fclose(accounts) != 0)
+        handle_error("Failed to close accounts file.\n");
 }
 
 void add_text(struct chat_list *item, char *msg, int author) {

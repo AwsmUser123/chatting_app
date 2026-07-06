@@ -4,11 +4,14 @@ LIBS=-lcurses
 
 all: client server
 
-client:
-	$(CMP) client.c $(FLAGS) $(LIBS) -o client.out
+interface.o:
+	$(CMP) -c interface.c $(FLAGS) $(LIBS) -o interface.o
+
+client: interface.o
+	$(CMP) client.c interface.o $(FLAGS) $(LIBS) -o client.out
 
 server:
 	$(CMP) server.c $(FLAGS) $(LIBS) -o server.out
 
 clean:
-	rm -f client.out server.out
+	rm -f client.out server.out interface.o

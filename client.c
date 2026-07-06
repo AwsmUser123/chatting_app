@@ -10,6 +10,8 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "interface.h"
+
 #define SERV_ADDR "192.168.2.186"
 #define SERV_PORT 6879
 #define QUEUE_LEN 5
@@ -19,17 +21,9 @@
 
 void send_code(int, char);
 void send_message(int, char *);
-void print_message(int);
+void receive_message(int, char *);
 void handle_error(char *);
 int handle_response(int);
-int credentials_valid(char *);
-
-void initialize_ncurses();
-void display_error(char *str);
-void welcome_screen();
-int login_screen();
-int join_screen();
-int chat_screen();
 
 int main() {
     struct sockaddr_in addr;
@@ -63,8 +57,6 @@ int main() {
 
     int running = 1;
     while (running) {
-        clear();
-        refresh();
         switch(current_state) {
             case LOGGED_OUT: {
                 response = account_screen();
@@ -134,7 +126,8 @@ int main() {
                     }
                     case 3: {
                         send_code(server, 0x10);
-                        print_message(server);
+                        receive_message(server, buf);
+                        list_messages(buf);
                         break;
                     }
                     case 4: {
@@ -154,28 +147,20 @@ int main() {
                 break;
             }
             case IN_CHAT: {
-                printw("What would you like to do?\n");
-                printw("1) - Send a message.\n");
-                printw("2) - List all messages.\n");
-                printw("3) - Leave chat.\n");
-                printw("4) - Quit.\n");
-                if (scanf("%d", &response) < 1)
-                    handle_error("Failed to read a response from user.\n");
+                response = chats_screen();
 
                 switch (response) {
                     case 1: {
                         send_code(server, 0x0b);
-                        printw("Please enter your message:\n");
-                        while (getchar() != '\n');
-                        if (fgets(buf, BUF_SIZE, stdin) == NULL)
-                            handle_error("Failed to read the message from the user.\n");
+                        get_message(buf);
                         send_message(server, buf);
                         handle_response(server);
                         break;
                     }
                     case 2: {
                         send_code(server, 0x0d);
-                        print_message(server);
+                        receive_message(server, buf);
+                        list_messages(buf);
                         break;
                     }
                     case 3: {
@@ -217,23 +202,23 @@ void send_message(int server_fd, char *msg) {
         handle_error("Failed to send the data to the server.\n");
 }
 
-void print_message(int server_fd) {
-    char buf[BUF_SIZE];
-    int data_len = 0;
-    int res;
-    if ((res = read(server_fd, &data_len, 4)) < 4) {
+void receive_message(int server_fd, char *str) {
+    int data_len;
+    if (read(server_fd, &data_len, 4) < 4) {
         handle_error("Failed to read the data from the server.\n");
     }
-    if (read(server_fd, buf, data_len) < data_len)
+    if (read(server_fd, str, data_len) < data_len)
         handle_error("Failed to read the data from the server.\n");
-    printw("%s", buf);
 }
 
 void handle_error(char *msg) {
-    if (errno != 0)
-        printw("%s\n\t%s", msg, strerror(errno));
-    else
-        printw("%s", msg);
+    char buf[BUF_SIZE];
+    strcpy(buf, msg);
+    if (errno != 0) {
+        strcat(buf, "\n");
+        strcat(buf, strerror(errno));
+    }
+    display_error(buf);
     endwin();
     exit(EXIT_FAILURE);
 }
@@ -248,7 +233,7 @@ int handle_response(int server_fd) {
             handle_error("Failed to read data from server.\n");
         if (read(server_fd, buf, data_len) < data_len)
             handle_error("Failed to read data from server.\n");
-        printw("ERROR: %s", buf);
+        display_error(buf);
         return 1;
     }
     else if (buf[0] == 0x02) {
