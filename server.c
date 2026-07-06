@@ -135,7 +135,7 @@ void send_error(int client_fd, char *msg) {
     int data_len;
     buf[0] = 0x00;
     if (errno != 0)
-        sprintf(buf+5, "%s\nError:%s", msg, strerror(errno));
+        sprintf(buf+5, "%s:%s", msg, strerror(errno));
     else
         sprintf(buf+5, "%s", msg);
     data_len = strlen(buf+5)+1;
@@ -165,14 +165,14 @@ void *handle_client(void *arg) {
             }
             case 0x05: {
                 if (client_id != -1)
-                    send_error(client, "You are already logged in.\n");
+                    send_error(client, "You are already logged in.");
                 else
                     client_id = login_user(client);
                 break;
             }
             case 0x06: {
                 if (client_id == -1)
-                    send_error(client, "You are not logged in.\n");
+                    send_error(client, "You are not logged in.");
                 else {
                     client_id = -1;
                     send_confirmation(client);
@@ -181,21 +181,21 @@ void *handle_client(void *arg) {
             }
             case 0x07: {
                 if (current_chat != -1)
-                    send_error(client, "You are already a member of a chat.\n");
+                    send_error(client, "You are already a member of a chat.");
                 else
                     current_chat = create_chat(client, client_id, head);
                 break;
             }
             case 0x09: {
                 if (current_chat != -1)
-                    send_error(client, "You are already a member of a chat.\n");
+                    send_error(client, "You are already a member of a chat.");
                 else
                     current_chat = join_chat(client, client_id, head);
                 break;
             }
             case 0x0a: {
                 if (current_chat == -1) {
-                    send_error(client, "You are currently not a member of any chat.\n");
+                    send_error(client, "You are currently not a member of any chat.");
                     break;
                 }
                 struct chat_list *prev = NULL, *curr = *head;
@@ -226,7 +226,7 @@ void *handle_client(void *arg) {
             }
             case 0x0b: {
                 if (current_chat == -1) {
-                    send_error(client, "You are currently not a member of any chat.\n");
+                    send_error(client, "You are currently not a member of any chat.");
                     break;
                 }
                 struct chat_list *curr = *head;
@@ -241,7 +241,7 @@ void *handle_client(void *arg) {
             }
             case 0x0d: {
                 if (current_chat == -1) {
-                    send_error(client, "You are currently not a member of any chat.\n");
+                    send_error(client, "You are currently not a member of any chat.");
                     break;
                 }
                 struct chat_list *curr = *head;
@@ -259,7 +259,7 @@ void *handle_client(void *arg) {
                 while (texts != NULL) {
                     get_username(texts->author, username);
                     strcat(buf, username);
-                    sprintf(tmp, " (%s):\n", ctime(&(texts->date)));
+                    strftime(tmp, BUF_SIZE, " (%b %d %H:%M)", localtime(&(texts->date));
                     strcat(buf, tmp);
                     strcat(buf, texts->text);
                     strcat(buf, "\n");
@@ -274,14 +274,9 @@ void *handle_client(void *arg) {
                 struct chat_list *curr = *head;
                 strcpy(buf, "");
                 while (curr != NULL) {
-                    sprintf(tmp, "CHAT ID: %ld\n", curr->chat_id);
+                    sprintf(tmp, "Chat ID: %ld\n", curr->chat_id);
                     strcat(buf, tmp);
-                    strcat(buf, "Members:\n");
-                    for (int j = 0; j < curr->curr_member; j++) {
-                        get_username(curr->members[j], username);
-                        sprintf(tmp, "\t%s\n", username);
-                        strcat(buf, tmp);
-                    }
+                    strcat(buf, "Members: %ld\n", curr->curr_member);
                     curr = curr->next;
                 }
                 send_message(client, buf);
@@ -339,7 +334,7 @@ int login_user(int client_fd) {
                 break;
             }
             else {
-                send_error(client_fd, "Wrong password.\n");
+                send_error(client_fd, "Wrong password.");
                 return -1;
             }
         }
@@ -383,7 +378,7 @@ void register_user(int client_fd) {
         if (res == NULL)
             handle_error("Failed to read account name from account file.\n");
         if (!strcmp(res, account_name)) {
-            send_error(client_fd, "Account with that username already exists.\n");
+            send_error(client_fd, "Account with that username already exists.");
             return;
         }
     }
@@ -396,7 +391,7 @@ int create_chat(int client_fd, int client_id, struct chat_list **head) {
     struct chat_list *curr;
     char buf[BUF_SIZE];
     if (client_id == -1) {
-        send_error(client_fd, "You are not logged in.\n");
+        send_error(client_fd, "You are not logged in.");
         return -1;
     }
     if (*head == NULL) {
@@ -420,15 +415,13 @@ int create_chat(int client_fd, int client_id, struct chat_list **head) {
     curr->members[0] = client_id;
     curr->next = NULL;
 
-    sprintf(buf, "CHAT ID: %ld\n", curr->chat_id);
-    send_message(client_fd, buf);
     send_confirmation(client_fd);
     return curr->chat_id;
 }
 
 int join_chat(int client_fd, int client_id, struct chat_list **head) {
     if (client_id == -1) {
-        send_error(client_fd, "You are not logged in.\n");
+        send_error(client_fd, "You are not logged in.");
         return -1;
     }
     long chat_id;
@@ -446,7 +439,7 @@ int join_chat(int client_fd, int client_id, struct chat_list **head) {
                     break;
                 }
                 else {
-                    send_error(client_fd, "The chat is full.\n");
+                    send_error(client_fd, "The chat is full.");
                     return -1;
                 }
             }
@@ -458,7 +451,7 @@ int join_chat(int client_fd, int client_id, struct chat_list **head) {
         return chat_id;
     }
     else {
-        send_error(client_fd, "Could not find a chat with that ID.\n");
+        send_error(client_fd, "Could not find a chat with that ID.");
         return -1;
     }
 }

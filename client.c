@@ -109,19 +109,15 @@ int main() {
                         running = 0;
                         break;
                     }
-                    default: {
-                        printw("Unknown code.\n");
-                    }
                 }
                 break;
             }
             case LOGGED_IN: {
-                response = join_screen();
+                response = loggedin_screen();
 
                 switch (response) {
                     case 1: {
                         send_code(server, 0x07);
-                        print_message(server);
                         if (handle_response(server) == 0)
                             current_state = IN_CHAT;
                         break;
@@ -129,9 +125,7 @@ int main() {
                     case 2: {
                         send_code(server, 0x09);
                         long chat_id;
-                        printw("Please enter the ID of the chat you would like to join: ");
-                        if (scanf("%ld", &chat_id) < 1)
-                            handle_error("Failed to read the ID of the chat from the user.\n");
+                        chat_id = join_chat();
                         if (write(server, &chat_id, 8) < 8)
                             handle_error("Failed to send data to the server.\n");
                         if (handle_response(server) == 0)
@@ -155,9 +149,6 @@ int main() {
                         send_code(server, 0x20);
                         running = 0;
                         break;
-                    }
-                    default: {
-                        printw("Unknown code.\n");
                     }
                 }
                 break;
@@ -202,17 +193,13 @@ int main() {
                         running = 0;
                         break;
                     }
-                    default: {
-                        printw("Unknown code.\n");
-                    }
                 }
                 break;
             }
         }
     }
-    printw("Thank you for using the chatting application!\n");
-    endwin();
 
+    goodbye_screen();
     return 0;
 }
 
@@ -272,25 +259,3 @@ int handle_response(int server_fd) {
         return -1;
     }
 }
-
-int credentials_valid(char *str) {
-    while (*str) {
-        if (!isalnum(*str))
-            return 0;
-        str++;
-    }
-    return 1;
-}
-
-void initialize_ncurses() {
-    initscr();
-    cbreak();
-    noecho();
-    intrflush(stdscr, FALSE);
-    keypad(stdscr, TRUE);
-}
-
-void welcome_screen();
-int login_screen();
-int join_screen();
-int chat_screen();
