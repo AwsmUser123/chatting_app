@@ -1,9 +1,9 @@
-#ifndef __INTERFACE
-#define __INTERFACE
+#ifndef __INTERFACE_H
+#define __INTERFACE_H
 
 void initialize_ncurses();
 
-void display_error(char *str);
+void display_error(const char *);
 
 void welcome_screen();
 
@@ -17,9 +17,9 @@ long join_chat();
 
 int chats_screen();
 
-void get_message(char *message);
+void get_message(char *);
 
-void list_messages(char *str);
+void list_messages(const char *);
 
 void goodbye_screen();
 

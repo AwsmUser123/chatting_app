@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "interface.h"
+
 #define TMP_LEN 128
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
@@ -39,7 +41,7 @@ void initialize_ncurses() {
     init_pair(2, COLOR_YELLOW, COLOR_WHITE);
 }
 
-void display_error(char *str) {
+void display_error(const char *str) {
     int x, y;
     int start_x = 2, start_y = 0, width = COLS-4, height = 3;
     int pos;
@@ -341,7 +343,7 @@ void get_message(char *message) {
     } while ((c = getch()) != '\n' || message_len == 0);
 }
 
-void list_messages(char *str) {
+void list_messages(const char *str) {
     int c, x, y;
     int start_x = 2, start_y = 4, width = COLS - 4, height = LINES - 8;
     int pos, curr_line = 0, no_lines = 0;

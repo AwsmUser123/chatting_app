@@ -10,6 +10,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "utils.h"
 #include "interface.h"
 
 #define SERV_ADDR "192.168.2.186"
@@ -19,11 +20,7 @@
 #define NAME_LEN 128
 #define PASS_LEN 128
 
-void send_code(int, char);
-void send_message(int, char *);
-void receive_message(int, char *);
-void handle_error(char *);
-int handle_response(int);
+int handle_response(int, char *);
 
 int main() {
     struct sockaddr_in addr;
@@ -52,8 +49,8 @@ int main() {
         handle_error("Failed to connect to server.\n");
     }
 
-    send_code(server, 0x01);
-    handle_response(server);
+    send_byte(server, 0x01);
+    handle_response(server, buf);
 
     int running = 1;
     while (running) {
@@ -73,9 +70,9 @@ int main() {
                         strcat(buf, ":");
                         strcat(buf, account_password);
 
-                        send_code(server, 0x03);
-                        send_message(server, buf);
-                        if (handle_response(server) == 0)
+                        send_byte(server, 0x03);
+                        send_str(server, buf);
+                        if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
                         break;
                     }
@@ -90,14 +87,14 @@ int main() {
                         strcat(buf, ":");
                         strcat(buf, account_password);
 
-                        send_code(server, 0x05);
-                        send_message(server, buf);
-                        if (handle_response(server) == 0)
+                        send_byte(server, 0x05);
+                        send_str(server, buf);
+                        if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
                         break;
                     }
                     case 3: {
-                        send_code(server, 0x20);
+                        send_byte(server, 0x20);
                         running = 0;
                         break;
                     }
@@ -109,37 +106,37 @@ int main() {
 
                 switch (response) {
                     case 1: {
-                        send_code(server, 0x07);
-                        if (handle_response(server) == 0)
+                        send_byte(server, 0x07);
+                        if (handle_response(server, buf) == 0)
                             current_state = IN_CHAT;
                         break;
                     }
                     case 2: {
-                        send_code(server, 0x09);
+                        send_byte(server, 0x09);
                         long chat_id;
                         chat_id = join_chat();
                         if (write(server, &chat_id, 8) < 8)
                             handle_error("Failed to send data to the server.\n");
-                        if (handle_response(server) == 0)
+                        if (handle_response(server, buf) == 0)
                             current_state = IN_CHAT;
                         break;
                     }
                     case 3: {
-                        send_code(server, 0x10);
-                        receive_message(server, buf);
+                        send_byte(server, 0x10);
+                        recv_str(server, buf);
                         list_messages(buf);
                         break;
                     }
                     case 4: {
-                        send_code(server, 0x06);
-                        if (handle_response(server) == 0)
+                        send_byte(server, 0x06);
+                        if (handle_response(server, buf) == 0)
                             current_state = LOGGED_OUT;
                         break;
                     }
                     case 5: {
-                        send_code(server, 0x06);
-                        handle_response(server);
-                        send_code(server, 0x20);
+                        send_byte(server, 0x06);
+                        handle_response(server, buf);
+                        send_byte(server, 0x20);
                         running = 0;
                         break;
                     }
@@ -151,30 +148,30 @@ int main() {
 
                 switch (response) {
                     case 1: {
-                        send_code(server, 0x0b);
+                        send_byte(server, 0x0b);
                         get_message(buf);
-                        send_message(server, buf);
-                        handle_response(server);
+                        send_str(server, buf);
+                        handle_response(server, buf);
                         break;
                     }
                     case 2: {
-                        send_code(server, 0x0d);
-                        receive_message(server, buf);
+                        send_byte(server, 0x0d);
+                        recv_str(server, buf);
                         list_messages(buf);
                         break;
                     }
                     case 3: {
-                        send_code(server, 0x0a);
-                        if (handle_response(server) == 0)
+                        send_byte(server, 0x0a);
+                        if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
                         break;
                     }
                     case 4: {
-                        send_code(server, 0x0a);
-                        handle_response(server);
-                        send_code(server, 0x06);
-                        handle_response(server);
-                        send_code(server, 0x20);
+                        send_byte(server, 0x0a);
+                        handle_response(server, buf);
+                        send_byte(server, 0x06);
+                        handle_response(server, buf);
+                        send_byte(server, 0x20);
                         running = 0;
                         break;
                     }
@@ -188,59 +185,19 @@ int main() {
     return 0;
 }
 
-void send_code(int server_fd, char code) {
-    if (write(server_fd, &code, 1) < 1)
-        handle_error("Failed to send data to the server.\n");
-}
-
-void send_message(int server_fd, char *msg) {
-    int data_len;
-    data_len = strlen(msg)+1;
-    if (write(server_fd, &data_len, 4) < 4)
-        handle_error("Failed to send the data to the server.\n");
-    if (write(server_fd, msg, data_len) < data_len)
-        handle_error("Failed to send the data to the server.\n");
-}
-
-void receive_message(int server_fd, char *str) {
-    int data_len;
-    if (read(server_fd, &data_len, 4) < 4) {
-        handle_error("Failed to read the data from the server.\n");
-    }
-    if (read(server_fd, str, data_len) < data_len)
-        handle_error("Failed to read the data from the server.\n");
-}
-
-void handle_error(char *msg) {
-    char buf[BUF_SIZE];
-    strcpy(buf, msg);
-    if (errno != 0) {
-        strcat(buf, "\n");
-        strcat(buf, strerror(errno));
-    }
-    display_error(buf);
-    endwin();
-    exit(EXIT_FAILURE);
-}
-
-int handle_response(int server_fd) {
-    char buf[BUF_SIZE];
-    if (read(server_fd, buf, 1) < 1)
-        handle_error("Failed to read data from server.\n");
-    if (buf[0] == 0x00) {
-        int data_len;
-        if (read(server_fd, &data_len, 4) < 4)
-            handle_error("Failed to read data from server.\n");
-        if (read(server_fd, buf, data_len) < data_len)
-            handle_error("Failed to read data from server.\n");
-        display_error(buf);
-        return 1;
-    }
-    else if (buf[0] == 0x02) {
-        return 0;
-    }
-    else {
-        handle_error("Unknown response code from server.\n");
-        return -1;
+int handle_response(int server_fd, char *err_str) {
+    switch (recv_byte(server_fd)) {
+        case 0x00: {
+            recv_str(server_fd, err_str);
+            display_error(err_str);
+            return 1;
+        }
+        case 0x02: {
+            return 0;
+        }
+        default: {
+            handle_error("Unknown response code from server.\n");
+            return -1;
+        }
     }
 }
