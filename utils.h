@@ -7,12 +7,12 @@ char recv_byte(int);
 
 void send_confirm(int);
 
-void send_str(int, char *);
+void send_str(int, const char *);
 
 void recv_str(int, char *);
 
-void send_error(int, char *);
+void send_error(int, const char *);
 
-void handle_error(char *msg);
+void handle_error(const char *);
 
 #endif

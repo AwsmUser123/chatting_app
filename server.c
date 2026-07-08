@@ -13,11 +13,11 @@
 
 #define SERV_ADDR "192.168.2.186"
 #define SERV_PORT 6879
-#define QUEUE_LEN 5
 #define BUF_SIZE 1024
 #define NAME_LEN 128
 #define PASS_LEN 128
 #define MAX_MEMBERS 10
+#define QUEUE_LEN 5
 
 struct text_list {
     int author;
@@ -29,41 +29,51 @@ struct text_list {
 struct chat_list {
     long chat_id;
     struct text_list *contents;
-    int curr_member;
+    int next_member;
     int members[MAX_MEMBERS];
     struct chat_list *next;
 };
 
-struct arg_data {
+struct client_data {
     int client_fd;
+    int client_id;
+    int chat_id;
+};
+
+struct arg_data {
+    int clients_len;
+    struct client_data client_data[QUEUE_LEN];
     struct chat_list **head;
 };
 
-void *handle_client(void *);
-int login_user(int, char *);
-int register_user(int, char *);
-int create_chat(int, int, struct chat_list **);
-int join_chat(int, int, struct chat_list **);
-int leave_chat(int, int, int, struct chat_list **);
-void recv_message(int, int, int, char *, struct chat_list **);
-void send_messages(int, int, char *, struct chat_list **);
-void send_chats(int, char *, struct chat_list **);
-void get_username(int, char *);
-void add_text(struct chat_list *, char *, int);
-void free_texts(struct chat_list *);
-void free_chat(struct chat_list *, struct chat_list **);
+void    *handle_client  (void *);
+int     login_user      (struct client_data *, char *);
+int     register_user   (struct client_data *, char *);
+long    create_chat     (struct client_data *, struct chat_list **);
+long    join_chat       (struct client_data *, struct chat_list **);
+long    leave_chat      (struct client_data *, struct chat_list **);
+void    recv_message    (struct client_data *, char *, struct chat_list **);
+void    send_messages   (struct client_data *, char *, struct chat_list **);
+void    send_chats      (struct client_data *, char *, struct chat_list **);
+void    get_username    (int, char *);
+void    add_text        (struct chat_list *, char *, int);
+void    free_texts      (struct chat_list *);
+void    free_chat       (struct chat_list *, struct chat_list **);
 
 int main() {
     struct sockaddr_in addr;
     int server, client;
-    int i;
-    struct sockaddr_in clients[QUEUE_LEN];
-    socklen_t client_len[QUEUE_LEN];
+    int i, j;
+    struct sockaddr_in client_addr[QUEUE_LEN];
+    socklen_t client_addrlen[QUEUE_LEN];
     pthread_t threads[QUEUE_LEN];
     struct chat_list *first_chat;
+    struct arg_data args;
 
-    i = 0;
     first_chat = NULL;
+    args.clients_len = 0;
+    args.head = &first_chat;
+
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1)
         handle_error("Socket creation failed.\n");
@@ -76,135 +86,148 @@ int main() {
         handle_error("Failed to bind the address to the socket.\n");
     if (listen(server, QUEUE_LEN) == -1)
         handle_error("Failed to mark the socket as listening.\n");
-    
     printf("Successfully started the server.\n");
-    while (i < QUEUE_LEN) {
-        client_len[i] = sizeof(struct sockaddr_in);
-        client = accept(server, (struct sockaddr *)(&clients[i]), &client_len[i]);
+
+    for (i = 0; i < QUEUE_LEN; i++) {
+        client_addrlen[i] = sizeof(struct sockaddr_in);
+        client = accept(server, (struct sockaddr *)(&client_addr[i]), &client_addrlen[i]);
         if (client == -1)
             handle_error("Failed to accept a client connection.\n");
-        struct arg_data args;
-        args.client_fd = client;
-        args.head = &first_chat;
+        args.client_data[i].client_fd = client;
+        args.client_data[i].client_id = -1;
+        args.client_data[i].chat_id = -1;
+        args.clients_len++;
         if (pthread_create(&threads[i], NULL, handle_client, (void *)&args) != 0)
             handle_error("Failed to create a thread for the client connection.\n");
         printf("Successfully accepted an incoming connection.\n");
-        i++;
     }
 
-    for (i = 0; i < QUEUE_LEN; i++) {
-        if (pthread_join(threads[i], NULL) != 0)
+    for (j = 0; j < i; j++)
+        if (pthread_join(threads[j], NULL) != 0)
             handle_error("Failed to join a thread.\n");
-    }
 
     printf("Server finished working.\n");
     return 0;
 } 
 
-void *handle_client(void *arg) {
-    int client = ((struct arg_data *)arg)->client_fd;
-    struct chat_list **head = ((struct arg_data *)arg)->head;
-    int client_id = -1;
-    long current_chat = -1;
+void *handle_client(void *argp) {
+    struct arg_data *args = (struct arg_data *)argp;
+    int idx = args->clients_len-1;
+    struct client_data client_data = args->client_data[idx];
+    struct chat_list **head = args->head;
     char buf[BUF_SIZE];
 
     while (1) {
-        switch (recv_byte(client)) {
+        switch (recv_byte(client_data.client_fd)) {
             case 0x01: {
-                send_confirm(client);
+                send_confirm(client_data.client_fd);
                 break;
             }
             case 0x03: {
-                if (client_id != -1)
-                    send_error(client, "You are already logged in.");
+                if (client_data.client_id != -1)
+                    send_error(client_data.client_fd, "You are already logged in.");
                 else
-                    client_id = register_user(client, buf);
+                    client_data.client_id = register_user(&client_data, buf);
                 break;
             }
             case 0x05: {
-                if (client_id != -1)
-                    send_error(client, "You are already logged in.");
+                if (client_data.client_id != -1)
+                    send_error(client_data.client_fd, "You are already logged in.");
                 else
-                    client_id = login_user(client, buf);
+                    client_data.client_id = login_user(&client_data, buf);
                 break;
             }
             case 0x06: {
-                if (client_id == -1)
-                    send_error(client, "You are not logged in.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
                 else {
-                    client_id = -1;
-                    send_confirm(client);
+                    client_data.client_id = -1;
+                    send_confirm(client_data.client_fd);
                 }
                 break;
             }
             case 0x07: {
-                if (current_chat != -1)
-                    send_error(client, "You are already a member of a chat.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
+                else if (client_data.chat_id != -1)
+                    send_error(client_data.client_fd, "You are already a member of a chat.");
                 else
-                    current_chat = create_chat(client, client_id, head);
+                    client_data.chat_id = create_chat(&client_data, head);
                 break;
             }
             case 0x09: {
-                if (current_chat != -1)
-                    send_error(client, "You are already a member of a chat.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
+                else if (client_data.chat_id != -1)
+                    send_error(client_data.client_fd, "You are already a member of a chat.");
                 else
-                    current_chat = join_chat(client, client_id, head);
+                    client_data.chat_id = join_chat(&client_data, head);
                 break;
             }
             case 0x0a: {
-                if (current_chat == -1)
-                    send_error(client, "You are currently not a member of any chat.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
+                else if (client_data.chat_id == -1)
+                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
                 else
-                    current_chat = leave_chat(client, client_id, current_chat, head);
+                    client_data.chat_id = leave_chat(&client_data, head);
                 break;
             }
             case 0x0b: {
-                if (current_chat == -1)
-                    send_error(client, "You are currently not a member of any chat.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
+                else if (client_data.chat_id == -1)
+                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
                 else
-                    recv_message(client, client_id, current_chat, buf, head);
+                    recv_message(&client_data, buf, head);
                 break;
             }
             case 0x0d: {
-                if (current_chat == -1)
-                    send_error(client, "You are currently not a member of any chat.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
+                else if (client_data.chat_id == -1)
+                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
                 else
-                    send_messages(client, current_chat, buf, head);
+                    send_messages(&client_data, buf, head);
                 break;
             }
             case 0x10: {
-                if (client_id == -1)
-                    send_error(client, "You are already logged in.");
+                if (client_data.client_id == -1)
+                    send_error(client_data.client_fd, "You are not logged in.");
                 else
-                    send_chats(client, buf, head);
+                    send_chats(&client_data, buf, head);
                 break;
             }
             case 0x20: {
                 pthread_exit(NULL);
             }
             default: {
-                handle_error("Server received unknown operation code.\n");
+                send_error(client_data.client_fd, "Server received unknown operation code.");
             }
         }
     }
 }
 
-int login_user(int client_fd, char *buf) {
+int login_user(struct client_data *client_data, char *buf) {
     int index;
     FILE *accounts;
     char *res;
     char account_name[NAME_LEN];
     char account_password[PASS_LEN];
 
-    recv_str(client_fd, buf);
+    recv_str(client_data->client_fd, buf);
 
     res = strtok(buf, ":\n");
-    if (res == NULL)
-        handle_error("Failed to read account name from client.\n");
+    if (res == NULL) {
+        send_error(client_data->client_fd, "Failed to read account name from client.\n");
+        return -1;
+    }
     strcpy(account_name, res);
     res = strtok(NULL, ":\n");
-    if (res == NULL)
-        handle_error("Failed to read account password from client.\n");
+    if (res == NULL) {
+        send_error(client_data->client_fd, "Failed to read account password from client.\n");
+        return -1;
+    }
     strcpy(account_password, res);
 
     if ((accounts = fopen("accounts.txt", "r")) == NULL)
@@ -223,7 +246,7 @@ int login_user(int client_fd, char *buf) {
                 break;
             }
             else {
-                send_error(client_fd, "Wrong password.");
+                send_error(client_data->client_fd, "Wrong password.");
                 return -1;
             }
         }
@@ -231,28 +254,32 @@ int login_user(int client_fd, char *buf) {
     if (fclose(accounts) != 0)
         handle_error("Failed to close accounts file.\n");
     if (index == -1)
-        send_error(client_fd, "Account with that username does not exist.");
+        send_error(client_data->client_fd, "Account with that username does not exist.");
     else
-        send_confirm(client_fd);
+        send_confirm(client_data->client_fd);
     return index;
 }
 
-int register_user(int client_fd, char *buf) {
+int register_user(struct client_data *client_data, char *buf) {
     int index;
     FILE *accounts;
     char *res;
     char account_name[NAME_LEN];
     char account_password[PASS_LEN];
 
-    recv_str(client_fd, buf);
+    recv_str(client_data->client_fd, buf);
 
     res = strtok(buf, ":\n");
-    if (res == NULL)
-        handle_error("Failed to read account name from client.\n");
+    if (res == NULL) {
+        send_error(client_data->client_fd, "Failed to read account name from client.\n");
+        return -1;
+    }
     strcpy(account_name, res);
     res = strtok(NULL, ":\n");
-    if (res == NULL)
-        handle_error("Failed to read account password from client.\n");
+    if (res == NULL) {
+        send_error(client_data->client_fd, "Failed to read account password from client.\n");
+        return -1;
+    }
     strcpy(account_password, res);
 
     if ((accounts = fopen("accounts.txt", "a+")) == NULL)
@@ -263,7 +290,7 @@ int register_user(int client_fd, char *buf) {
         if (res == NULL)
             handle_error("Failed to read account name from account file.\n");
         if (!strcmp(res, account_name)) {
-            send_error(client_fd, "Account with that username already exists.");
+            send_error(client_data->client_fd, "Account with that username already exists.");
             return -1;
         }
     }
@@ -271,16 +298,12 @@ int register_user(int client_fd, char *buf) {
         handle_error("Failed to write new data to the accounts file.\n");
     if (fclose(accounts) != 0)
         handle_error("Failed to close accounts file.\n");
-    send_confirm(client_fd);
+    send_confirm(client_data->client_fd);
     return index;
 }
 
-int create_chat(int client_fd, int client_id, struct chat_list **head) {
+long create_chat(struct client_data *client_data, struct chat_list **head) {
     struct chat_list *curr;
-    if (client_id == -1) {
-        send_error(client_fd, "You are not logged in.");
-        return -1;
-    }
     if (*head == NULL) {
         *head = malloc(sizeof(struct chat_list));
         if (*head == NULL)
@@ -298,31 +321,31 @@ int create_chat(int client_fd, int client_id, struct chat_list **head) {
     }
     curr->chat_id = random();
     curr->contents = NULL;
-    curr->curr_member = 1;
-    curr->members[0] = client_id;
+    curr->next_member = 1;
+    curr->members[0] = client_data->client_id;
     curr->next = NULL;
 
-    send_confirm(client_fd);
+    send_confirm(client_data->client_fd);
     return curr->chat_id;
 }
 
-int join_chat(int client_fd, int client_id, struct chat_list **head) {
+long join_chat(struct client_data *client_data, struct chat_list **head) {
     long chat_id;
     int found = 0;
-    if (read(client_fd, &chat_id, 8) < 8)
+    if (read(client_data->client_fd, &chat_id, 8) < 8)
         handle_error("Failed to read data from client.\n");
     if (*head != NULL) {
         struct chat_list *curr = *head;
         while (curr != NULL) {
             if (curr->chat_id == chat_id) {
                 found = 1;
-                if (curr->curr_member < MAX_MEMBERS) {
-                    curr->members[curr->curr_member] = client_id;
-                    curr->curr_member++;
+                if (curr->next_member < MAX_MEMBERS) {
+                    curr->members[curr->next_member] = client_data->client_id;
+                    curr->next_member++;
                     break;
                 }
                 else {
-                    send_error(client_fd, "The chat is full.");
+                    send_error(client_data->client_fd, "The chat is full.");
                     return -1;
                 }
             }
@@ -330,54 +353,55 @@ int join_chat(int client_fd, int client_id, struct chat_list **head) {
         }
     }
     if (found == 1) {
-        send_confirm(client_fd);
+        send_confirm(client_data->client_fd);
         return chat_id;
     }
     else {
-        send_error(client_fd, "Could not find a chat with that ID.");
+        send_error(client_data->client_fd, "Could not find a chat with that ID.");
         return -1;
     }
 }
 
-int leave_chat(int client_fd, int client_id, int chat_id, struct chat_list **head) {
+long leave_chat(struct client_data *client_data, struct chat_list **head) {
     struct chat_list *curr = *head;
-    while (curr && curr->chat_id != chat_id) {
+    while (curr && curr->chat_id != client_data->chat_id)
         curr = curr->next;
-    }
     if (curr == NULL)
         handle_error("Could not find a chat with that ID.\n");
-    for (int i = 0; i < curr->curr_member; i++) {
-        if (curr->members[i] == client_id) {
-            for (int j = i; j < curr->curr_member-1; j++)
+    for (int i = 0; i < curr->next_member; i++) {
+        if (curr->members[i] == client_data->client_id) {
+            for (int j = i; j < curr->next_member-1; j++)
                 curr->members[j] = curr->members[j+1];
             break;
         }
     }
-    if (--(curr->curr_member) == 0) {
+    if (--(curr->next_member) == 0) {
         free_chat(curr, head);
     }
-    send_confirm(client_fd);
+    send_confirm(client_data->client_fd);
     return -1;
 }
 
-void recv_message(int client_fd, int client_id, int chat_id, char *buf, struct chat_list **head) {
+void recv_message(struct client_data *client_data, char *buf, struct chat_list **head) {
     struct chat_list *curr = *head;
-    while (curr->chat_id != chat_id && curr)
+
+    while (curr && curr->chat_id != client_data->chat_id)
         curr = curr->next;
     if (curr == NULL)
         handle_error("Could not find a chat with that ID.\n");
-    recv_str(client_fd, buf);
-    add_text(curr, buf, client_id);
-    send_confirm(client_fd);
+
+    recv_str(client_data->client_fd, buf);
+    add_text(curr, buf, client_data->client_id);
+    send_confirm(client_data->client_fd);
 }
 
-void send_messages(int client_fd, int chat_id, char *buf, struct chat_list **head) {
+void send_messages(struct client_data *client_data, char *buf, struct chat_list **head) {
     struct chat_list *curr = *head;
     struct text_list *texts;
     char tmp[BUF_SIZE];
     char username[NAME_LEN];
 
-    while (curr->chat_id != chat_id && curr)
+    while (curr && curr->chat_id != client_data->chat_id)
         curr = curr->next;
     if (curr == NULL)
         handle_error("Could not find a chat with that ID.\n");
@@ -393,21 +417,25 @@ void send_messages(int client_fd, int chat_id, char *buf, struct chat_list **hea
         strcat(buf, "\n");
         texts = texts->next;
     }
-    send_str(client_fd, buf);
+    send_str(client_data->client_fd, buf);
 }
 
-void send_chats(int client_fd, char *buf, struct chat_list **head) {
+void send_chats(struct client_data *client_data, char *buf, struct chat_list **head) {
     char tmp[BUF_SIZE];
     struct chat_list *curr = *head;
     strcpy(buf, "");
     while (curr != NULL) {
         sprintf(tmp, "Chat ID: %ld\n", curr->chat_id);
         strcat(buf, tmp);
-        sprintf(tmp, "Members: %d\n", curr->curr_member);
-        strcat(buf, tmp);
+        strcat(buf, "Members:\n\t");
+        for (int i = 0; i < curr->next_member; i++) {
+            get_username(curr->members[i], tmp);
+            strcat(buf, tmp);
+            strcat(buf, (i == curr->next_member - 1) ? "\n" : " ");
+        }
         curr = curr->next;
     }
-    send_str(client_fd, buf);
+    send_str(client_data->client_fd, buf);
 }
 
 void get_username(int client_id, char *buf) {
@@ -427,7 +455,7 @@ void get_username(int client_id, char *buf) {
         handle_error("Failed to close accounts file.\n");
 }
 
-void add_text(struct chat_list *item, char *msg, int author) {
+void add_text(struct chat_list *item, char *msg, int author_id) {
     struct text_list *curr, *tmp;
     if ((tmp = malloc(sizeof(struct text_list))) == NULL)
         handle_error("Failed to allocate memory.\n");
@@ -439,7 +467,7 @@ void add_text(struct chat_list *item, char *msg, int author) {
             curr = curr->next;
         curr->next = tmp;
     }
-    tmp->author = author;
+    tmp->author = author_id;
     tmp->date = time(NULL);
     tmp->text = strdup(msg);
     tmp->next = NULL;
