@@ -1,5 +1,5 @@
 CMP=gcc
-FLAGS=-O2 -Wall -Werror -Wextra -pedantic
+FLAGS=-g -O2 -Wall -Werror -Wextra -pedantic
 LIBS=-lcurses
 
 all: client server

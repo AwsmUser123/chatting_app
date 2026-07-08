@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "constants.h"
 #include "interface.h"
 
-#define TMP_LEN 128
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
 void print_frame() {

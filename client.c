@@ -10,15 +10,10 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "codes.h"
+#include "constants.h"
 #include "utils.h"
 #include "interface.h"
-
-#define SERV_ADDR "192.168.2.186"
-#define SERV_PORT 6879
-#define QUEUE_LEN 5
-#define BUF_SIZE 1024
-#define NAME_LEN 128
-#define PASS_LEN 128
 
 int handle_response(int, char *);
 
@@ -49,7 +44,7 @@ int main() {
         handle_error("Failed to connect to server.\n");
     }
 
-    send_byte(server, 0x01);
+    send_byte(server, CMD_INIT);
     handle_response(server, buf);
 
     int running = 1;
@@ -70,7 +65,7 @@ int main() {
                         strcat(buf, ":");
                         strcat(buf, account_password);
 
-                        send_byte(server, 0x03);
+                        send_byte(server, CMD_REGISTER);
                         send_str(server, buf);
                         if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
@@ -87,14 +82,14 @@ int main() {
                         strcat(buf, ":");
                         strcat(buf, account_password);
 
-                        send_byte(server, 0x05);
+                        send_byte(server, CMD_LOGIN);
                         send_str(server, buf);
                         if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
                         break;
                     }
                     case 3: {
-                        send_byte(server, 0x20);
+                        send_byte(server, CMD_QUIT);
                         running = 0;
                         break;
                     }
@@ -106,37 +101,36 @@ int main() {
 
                 switch (response) {
                     case 1: {
-                        send_byte(server, 0x07);
+                        send_byte(server, CMD_CREATECHAT);
                         if (handle_response(server, buf) == 0)
                             current_state = IN_CHAT;
                         break;
                     }
                     case 2: {
-                        send_byte(server, 0x09);
                         long chat_id;
+                        send_byte(server, CMD_JOINCHAT);
                         chat_id = join_chat();
-                        if (write(server, &chat_id, 8) < 8)
-                            handle_error("Failed to send data to the server.\n");
+                        send_u64(server, chat_id);
                         if (handle_response(server, buf) == 0)
                             current_state = IN_CHAT;
                         break;
                     }
                     case 3: {
-                        send_byte(server, 0x10);
+                        send_byte(server, CMD_LISTCHATS);
                         recv_str(server, buf);
                         list_messages(buf);
                         break;
                     }
                     case 4: {
-                        send_byte(server, 0x06);
+                        send_byte(server, CMD_LOGOUT);
                         if (handle_response(server, buf) == 0)
                             current_state = LOGGED_OUT;
                         break;
                     }
                     case 5: {
-                        send_byte(server, 0x06);
+                        send_byte(server, CMD_LOGOUT);
                         handle_response(server, buf);
-                        send_byte(server, 0x20);
+                        send_byte(server, CMD_QUIT);
                         running = 0;
                         break;
                     }
@@ -148,30 +142,30 @@ int main() {
 
                 switch (response) {
                     case 1: {
-                        send_byte(server, 0x0b);
+                        send_byte(server, CMD_SENDMSG);
                         get_message(buf);
                         send_str(server, buf);
                         handle_response(server, buf);
                         break;
                     }
                     case 2: {
-                        send_byte(server, 0x0d);
+                        send_byte(server, CMD_LISTMSGS);
                         recv_str(server, buf);
                         list_messages(buf);
                         break;
                     }
                     case 3: {
-                        send_byte(server, 0x0a);
+                        send_byte(server, CMD_QUITCHAT);
                         if (handle_response(server, buf) == 0)
                             current_state = LOGGED_IN;
                         break;
                     }
                     case 4: {
-                        send_byte(server, 0x0a);
+                        send_byte(server, CMD_QUITCHAT);
                         handle_response(server, buf);
-                        send_byte(server, 0x06);
+                        send_byte(server, CMD_LOGOUT);
                         handle_response(server, buf);
-                        send_byte(server, 0x20);
+                        send_byte(server, CMD_QUIT);
                         running = 0;
                         break;
                     }
