@@ -429,6 +429,5 @@ void goodbye_screen() {
     print_middle(13, "Press ENTER to continue.");
     print_frame();
     refresh();
-    while (getch() != '\n');
     endwin();
 }

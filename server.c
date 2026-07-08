@@ -46,24 +46,55 @@ struct arg_data {
     struct chat_list **head;
 };
 
-void    *handle_client  (void *);
-int     login_user      (struct client_data *, char *);
-int     register_user   (struct client_data *, char *);
-long    create_chat     (struct client_data *, struct chat_list **);
-long    join_chat       (struct client_data *, struct chat_list **);
-long    leave_chat      (struct client_data *, struct chat_list **);
-void    recv_message    (struct client_data *, char *, struct chat_list **);
-void    send_messages   (struct client_data *, char *, struct chat_list **);
-void    send_chats      (struct client_data *, char *, struct chat_list **);
-void    get_username    (int, char *);
-void    add_text        (struct chat_list *, char *, int);
-void    free_texts      (struct chat_list *);
-void    free_chat       (struct chat_list *, struct chat_list **);
+void    cleanup             (int, void *);
+void    *accept_connections (void *);
+void    *handle_client      (void *);
+int     login_user          (struct client_data *, char *);
+int     register_user       (struct client_data *, char *);
+long    create_chat         (struct client_data *, struct chat_list **);
+long    join_chat           (struct client_data *, struct chat_list **);
+long    leave_chat          (struct client_data *, struct chat_list **);
+void    recv_message        (struct client_data *, char *, struct chat_list **);
+void    send_messages       (struct client_data *, char *, struct chat_list **);
+void    send_chats          (struct client_data *, char *, struct chat_list **);
+void    get_username        (int, char *);
+void    add_text            (struct chat_list *, char *, int);
+void    free_texts          (struct chat_list *);
+void    free_chat           (struct chat_list *, struct chat_list **);
 
 int main() {
+    pthread_t worker_thread;
+
+    if (pthread_create(&worker_thread, NULL, accept_connections, NULL) != 0)
+        handle_error("Failed to create a thread for the client connection.\n");
+
+    printf("Started the server.\n");
+    printf("Press 'q' to stop this program.\n");
+
+    while (getchar() != 'q');
+
+    if (pthread_join(worker_thread, NULL) != 0)
+        handle_error("Failed to join a thread.\n");
+
+    printf("Server finished working.\n");
+    return 0;
+}
+
+void cleanup(int code, void *arg) {
+    code = (code == 0) ? 0 : code; //to avoid compiler warnings
+    struct chat_list **head = (struct chat_list **)arg;
+    struct chat_list *curr = *head;
+    while (curr) {
+        free_chat(curr, head);
+        curr = curr->next;
+    }
+}
+
+void *accept_connections(void *argp) {
+    argp = (argp == NULL) ? NULL : argp; //to avoid compiler warnings
     struct sockaddr_in addr;
     int server, client;
-    int i, j;
+    int i;
     struct sockaddr_in client_addr[QUEUE_LEN];
     socklen_t client_addrlen[QUEUE_LEN];
     pthread_t threads[QUEUE_LEN];
@@ -74,6 +105,9 @@ int main() {
     args.clients_len = 0;
     args.head = &first_chat;
 
+    if (on_exit(cleanup, (void *)&first_chat) != 0)
+        handle_error("Failed to register a function via on_exit.\n");
+
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1)
         handle_error("Socket creation failed.\n");
@@ -82,11 +116,12 @@ int main() {
     addr.sin_port = htons(SERV_PORT);
     if (inet_aton(SERV_ADDR, &(addr.sin_addr)) == 0)
         handle_error("Invalid server address.\n");
+
     if (bind(server, (struct sockaddr *)(&addr), sizeof(addr)) == -1)
         handle_error("Failed to bind the address to the socket.\n");
+
     if (listen(server, QUEUE_LEN) == -1)
         handle_error("Failed to mark the socket as listening.\n");
-    printf("Successfully started the server.\n");
 
     for (i = 0; i < QUEUE_LEN; i++) {
         client_addrlen[i] = sizeof(struct sockaddr_in);
@@ -99,15 +134,11 @@ int main() {
         args.clients_len++;
         if (pthread_create(&threads[i], NULL, handle_client, (void *)&args) != 0)
             handle_error("Failed to create a thread for the client connection.\n");
+        if (pthread_detach(threads[i]) != 0)
+            handle_error("Failed to detach a thread.\n");
         printf("Successfully accepted an incoming connection.\n");
     }
-
-    for (j = 0; j < i; j++)
-        if (pthread_join(threads[j], NULL) != 0)
-            handle_error("Failed to join a thread.\n");
-
-    printf("Server finished working.\n");
-    return 0;
+    return NULL;
 } 
 
 void *handle_client(void *argp) {
@@ -497,4 +528,16 @@ void free_chat(struct chat_list *item, struct chat_list **head) {
         prev->next = curr->next;
     free_texts(curr);
     free(curr);
+}
+
+void handle_error(const char *msg) {
+    char buf[BUF_SIZE];
+    strcpy(buf, msg);
+    if (errno != 0) {
+        strcat(buf, "\n");
+        strcat(buf, strerror(errno));
+        errno = 0;
+    }
+    fputs(buf, stderr);
+    exit(EXIT_FAILURE);
 }

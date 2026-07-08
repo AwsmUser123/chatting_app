@@ -52,20 +52,3 @@ void send_error(int fd, const char *msg) {
     send_byte(fd, 0x00);
     send_str(fd, buf);
 }
-
-void handle_error(const char *msg) {
-    char buf[BUF_SIZE];
-    strcpy(buf, msg);
-    if (errno != 0) {
-        strcat(buf, "\n");
-        strcat(buf, strerror(errno));
-        errno = 0;
-    }
-#ifdef __INTERFACE_H
-    display_error(buf);
-    endwin();
-#else
-    fputs(buf, stderr);
-#endif
-    exit(EXIT_FAILURE);
-}

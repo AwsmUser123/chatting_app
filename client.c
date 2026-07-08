@@ -201,3 +201,16 @@ int handle_response(int server_fd, char *err_str) {
         }
     }
 }
+
+void handle_error(const char *msg) {
+    char buf[BUF_SIZE];
+    strcpy(buf, msg);
+    if (errno != 0) {
+        strcat(buf, "\n");
+        strcat(buf, strerror(errno));
+        errno = 0;
+    }
+    display_error(buf);
+    endwin();
+    exit(EXIT_FAILURE);
+}
