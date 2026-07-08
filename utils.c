@@ -14,24 +14,28 @@ ssize_t read_all(int fd, void *buf, size_t count) {
     char *p = buf;
     while (count > 0) {
         ssize_t received = read(fd, p, count);
-        if (received <= 0)
+        if (received == -1 && errno == EINTR)
+            continue;
+        else if (received <= 0)
             return -1;
         p += received;
         count -= received;
     }
-    return 0;
+    return 0; //return count
 }
 
 ssize_t write_all(int fd, const void *buf, size_t count) {
     const char *p = buf;
     while (count > 0) {
         ssize_t written = write(fd, p, count);
-        if (written <= 0)
+        if (written == -1 && errno == EINTR)
+            continue;
+        else if (written <= 0)
             return -1;
         p += written;
         count -= written;
     }
-    return 0;
+    return 0; //return count
 }
 
 void send_byte(int fd, char byte) {
