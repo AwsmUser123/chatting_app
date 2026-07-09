@@ -1,5 +1,0 @@
-transfer the error messages to the client.
-start checking for errors.
-do something about code size.
-transfer some stuff to headers.
-finish the UI.

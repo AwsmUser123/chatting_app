@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,54 +15,62 @@
 #include "constants.h"
 #include "utils.h"
 
-
-struct text_list {
-    int author;
+struct text_data {
+    int author_id;
     time_t date;
     char *text;
-    struct text_list *next;
 };
 
-struct chat_list {
+struct chat_data {
     long chat_id;
-    struct text_list *contents;
+    struct linked_list **texts;
     int next_member;
     int members[MAX_MEMBERS];
-    struct chat_list *next;
 };
 
 struct client_data {
     int client_fd;
     int client_id;
-    int chat_id;
+    struct chat_data *client_chat;
     struct sockaddr_in client_addr;
     socklen_t client_addrlen;
 };
 
+struct linked_list {
+    void *element;
+    size_t element_len;
+    struct linked_list *next;
+};
+
 struct arg_data {
-    int *clients_len;
-    struct client_data client_data[QUEUE_LEN];
-    struct chat_list **head;
+    struct client_data *client_data;
+    struct linked_list **clients_headptr;
+    struct linked_list **chats_headptr;
     pthread_mutex_t *account_list_mutex;
     pthread_mutex_t *client_list_mutex;
     pthread_mutex_t *chat_list_mutex;
 };
 
-void    cleanup             (int, void *);
-void    *accept_connections (void *);
-void    *handle_client      (void *);
-int     login_user          (struct client_data *, char *);
-int     register_user       (struct client_data *, char *);
-long    create_chat         (struct client_data *, struct chat_list **);
-long    join_chat           (struct client_data *, struct chat_list **);
-long    leave_chat          (struct client_data *, struct chat_list **);
-void    recv_message        (struct client_data *, char *, struct chat_list **);
-void    send_messages       (struct client_data *, char *, struct chat_list **);
-void    send_chats          (struct client_data *, char *, struct chat_list **);
-void    get_username        (int, char *);
-void    add_text            (struct chat_list *, char *, int);
-void    free_texts          (struct chat_list *);
-void    free_chat           (struct chat_list *, struct chat_list **);
+void cleanup                    (int, void *);
+void *accept_connections        (void *);
+void *handle_client             (void *);
+int login_user                  (struct client_data *, char *, struct linked_list **);
+int register_user               (struct client_data *, char *);
+struct chat_data *create_chat   (struct client_data *, struct linked_list **);
+struct chat_data *join_chat     (struct client_data *, char *, struct linked_list **);
+struct chat_data *leave_chat    (struct client_data *, struct linked_list **);
+void recv_message               (struct client_data *, char *);
+void send_messages              (struct client_data *, char *);
+void send_chats                 (struct client_data *, char *, struct linked_list **);
+void get_username               (int, char *);
+void add_text                   (struct chat_data *, char *, int);
+void add_node                   (void *, size_t, struct linked_list **);
+bool contains_element           (void *, size_t, struct linked_list **);
+void free_element               (void *, struct linked_list **, void (*)(void *));
+void free_list                  (struct linked_list **, void (*)(void *));
+void free_text_item             (void *);
+void free_chat_item             (void *);
+void free_client_item           (void *);
 
 int main() {
     pthread_t worker_thread;
@@ -84,41 +93,57 @@ int main() {
     return 0;
 }
 
-void cleanup(int code, void *arg) {
+void cleanup(int code, void *args) {
     code = (code == 0) ? 0 : code; //to avoid compiler warnings
+    args = (args == NULL) ? NULL : args; //to avoid compiler warnings
+    /*
     struct chat_list **head = (struct chat_list **)arg;
     struct chat_list *curr = *head;
     while (curr) {
         free_chat(curr, head);
         curr = curr->next;
     }
+    */
+}
+
+void handle_error(const char *msg) {
+    fputs(msg, stderr);
+    if (errno != 0) {
+        fputc(':', stderr);
+        fputs(strerror(errno), stderr);
+        errno = 0;
+    }
+    exit(EXIT_FAILURE);
 }
 
 void *accept_connections(void *argp) {
     argp = (argp == NULL) ? NULL : argp; //to avoid compiler warnings
-    struct sockaddr_in addr;
+
+    struct sockaddr_in addr, tmp_addr;
+    socklen_t tmp_addrlen;
     int server, client;
     int i, thread_count;
-    struct sockaddr_in tmp_addr;
-    socklen_t tmp_addrlen;
-    pthread_t threads[QUEUE_LEN];
-    struct chat_list *first_chat;
+    struct client_data *cl_data;
+    struct linked_list *chat_list, *client_list;
     struct arg_data args;
+    pthread_t threads[QUEUE_LEN];
     pthread_mutex_t mutex_accounts, mutex_clients, mutex_chats;
 
-    first_chat = NULL;
     i = 0;
     thread_count = 0;
-    args.clients_len = &i;
-    args.head = &first_chat;
+    chat_list = NULL, client_list = NULL;
+
+    args.clients_headptr = &client_list;
+    args.chats_headptr = &chat_list;
     args.account_list_mutex = &mutex_accounts;
     args.client_list_mutex = &mutex_clients;
     args.chat_list_mutex = &mutex_chats;
+
     pthread_mutex_init(args.account_list_mutex, NULL);
     pthread_mutex_init(args.client_list_mutex, NULL);
     pthread_mutex_init(args.chat_list_mutex, NULL);
 
-    on_exit(cleanup, (void *)&first_chat);
+    on_exit(cleanup, (void *)&args); //THIS CHANGED
 
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1)
@@ -142,12 +167,17 @@ void *accept_connections(void *argp) {
             handle_error("Failed to accept a client connection.\n");
 
         pthread_mutex_lock(args.client_list_mutex);
-        args.client_data[i].client_addr = tmp_addr;
-        args.client_data[i].client_addrlen = tmp_addrlen;
-        args.client_data[i].client_fd = client;
-        args.client_data[i].client_id = -1;
-        args.client_data[i].chat_id = -1;
-        *(args.clients_len) += 1;
+
+        if ((cl_data = malloc(sizeof(struct client_data))) == NULL)
+            handle_error("Failed to allocate memory.\n");
+        
+        cl_data->client_addr = tmp_addr;
+        cl_data->client_addrlen = tmp_addrlen;
+        cl_data->client_fd = client;
+        cl_data->client_id = -1;
+        cl_data->client_chat = NULL;
+        args.client_data = cl_data;
+
         pthread_mutex_unlock(args.client_list_mutex);
 
         if (pthread_create(&threads[thread_count++], NULL, handle_client, (void *)&args) != 0)
@@ -158,9 +188,9 @@ void *accept_connections(void *argp) {
     for (int j = 0; j < thread_count; j++)
         if (pthread_join(threads[j], NULL) != 0)
             handle_error("Failed to join a thread.\n");
-    pthread_mutex_destroy(args.account_list_mutex);
-    pthread_mutex_destroy(args.client_list_mutex);
-    pthread_mutex_destroy(args.chat_list_mutex);
+    //pthread_mutex_destroy(args.account_list_mutex);
+    //pthread_mutex_destroy(args.client_list_mutex);
+    //pthread_mutex_destroy(args.chat_list_mutex);
     return NULL;
 } 
 
@@ -173,9 +203,9 @@ void *handle_client(void *argp) {
     pthread_mutex_lock(client_list_mutex);
     pthread_mutex_lock(chat_list_mutex);
 
-    int idx = *(args->clients_len) - 1;
-    struct client_data client_data = args->client_data[idx];
-    struct chat_list **head = args->head;
+    struct client_data *client_data = args->client_data;
+    struct linked_list **clients_list = args->clients_headptr;
+    struct linked_list **chats_list = args->chats_headptr;
 
     pthread_mutex_unlock(client_list_mutex);
     pthread_mutex_unlock(chat_list_mutex);
@@ -183,109 +213,127 @@ void *handle_client(void *argp) {
     char buf[BUF_SIZE];
 
     while (1) {
-        switch (recv_byte(client_data.client_fd)) {
+        switch (recv_byte(client_data->client_fd)) {
             case CMD_INIT: {
-                send_confirm(client_data.client_fd);
+                send_confirm(client_data->client_fd);
                 break;
             }
             case CMD_REGISTER: {
-                if (client_data.client_id != -1)
-                    send_error(client_data.client_fd, "You are already logged in.");
+                if (client_data->client_id != -1)
+                    send_error(client_data->client_fd, "You are already logged in.");
                 else {
                     pthread_mutex_lock(account_list_mutex);
-                    client_data.client_id = register_user(&client_data, buf);
+
+                    client_data->client_id = register_user(client_data, buf);
+
                     pthread_mutex_unlock(account_list_mutex);
                 }
                 break;
             }
             case CMD_LOGIN: {
-                if (client_data.client_id != -1)
-                    send_error(client_data.client_fd, "You are already logged in.");
+                if (client_data->client_id != -1)
+                    send_error(client_data->client_fd, "You are already logged in.");
                 else {
                     pthread_mutex_lock(account_list_mutex);
-                    client_data.client_id = login_user(&client_data, buf);
+                    pthread_mutex_lock(client_list_mutex);
+
+                    client_data->client_id = login_user(client_data, buf, clients_list);
+
                     pthread_mutex_unlock(account_list_mutex);
+                    pthread_mutex_unlock(client_list_mutex);
                 }
                 break;
             }
             case CMD_LOGOUT: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
                 else {
-                    client_data.client_id = -1;
-                    send_confirm(client_data.client_fd);
+                    client_data->client_id = -1;
+                    send_confirm(client_data->client_fd);
                 }
                 break;
             }
             case CMD_CREATECHAT: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
-                else if (client_data.chat_id != -1)
-                    send_error(client_data.client_fd, "You are already a member of a chat.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
+                else if (client_data->client_chat != NULL)
+                    send_error(client_data->client_fd, "You are already a member of a chat.");
                 else {
                     pthread_mutex_lock(chat_list_mutex);
-                    client_data.chat_id = create_chat(&client_data, head);
+
+                    client_data->client_chat = create_chat(client_data, clients_list);
+
                     pthread_mutex_unlock(chat_list_mutex);
                 }
                 break;
             }
             case CMD_JOINCHAT: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
-                else if (client_data.chat_id != -1)
-                    send_error(client_data.client_fd, "You are already a member of a chat.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
+                else if (client_data->client_chat != NULL)
+                    send_error(client_data->client_fd, "You are already a member of a chat.");
                 else {
                     pthread_mutex_lock(chat_list_mutex);
-                    client_data.chat_id = join_chat(&client_data, head);
+
+                    client_data->client_chat = join_chat(client_data, buf, clients_list);
+
                     pthread_mutex_unlock(chat_list_mutex);
                 }
                 break;
             }
             case CMD_LISTCHATS: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
                 else {
                     pthread_mutex_lock(account_list_mutex);
                     pthread_mutex_lock(chat_list_mutex);
-                    send_chats(&client_data, buf, head);
+
+                    send_chats(client_data, buf, chats_list);
+
                     pthread_mutex_unlock(account_list_mutex);
                     pthread_mutex_unlock(chat_list_mutex);
                 }
                 break;
             }
             case CMD_QUITCHAT: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
-                else if (client_data.chat_id == -1)
-                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
+                else if (client_data->client_chat == NULL)
+                    send_error(client_data->client_fd, "You are currently not a member of any chat.");
                 else {
                     pthread_mutex_lock(chat_list_mutex);
-                    client_data.chat_id = leave_chat(&client_data, head);
+
+                    client_data->client_chat = leave_chat(client_data, chats_list);
+
                     pthread_mutex_unlock(chat_list_mutex);
                 }
                 break;
             }
             case CMD_SENDMSG: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
-                else if (client_data.chat_id == -1)
-                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
+                else if (client_data->client_chat == NULL)
+                    send_error(client_data->client_fd, "You are currently not a member of any chat.");
                 else {
                     pthread_mutex_lock(chat_list_mutex);
-                    recv_message(&client_data, buf, head);
+
+                    recv_message(client_data, buf);
+
                     pthread_mutex_unlock(chat_list_mutex);
                 }
                 break;
             }
             case CMD_LISTMSGS: {
-                if (client_data.client_id == -1)
-                    send_error(client_data.client_fd, "You are not logged in.");
-                else if (client_data.chat_id == -1)
-                    send_error(client_data.client_fd, "You are currently not a member of any chat.");
+                if (client_data->client_id == -1)
+                    send_error(client_data->client_fd, "You are not logged in.");
+                else if (client_data->client_chat == NULL)
+                    send_error(client_data->client_fd, "You are currently not a member of any chat.");
                 else {
                     pthread_mutex_lock(account_list_mutex);
                     pthread_mutex_lock(chat_list_mutex);
-                    send_messages(&client_data, buf, head);
+
+                    send_messages(client_data, buf);
+
                     pthread_mutex_unlock(account_list_mutex);
                     pthread_mutex_unlock(chat_list_mutex);
                 }
@@ -293,30 +341,21 @@ void *handle_client(void *argp) {
             }
             case CMD_QUIT: {
                 pthread_mutex_lock(client_list_mutex);
-                idx = *(args->clients_len);
-                int account_idx = -1;
-                for (int i = 0; i < idx; i++) {
-                    if (args->client_data[i].client_fd == client_data.client_fd) {
-                        account_idx = i;
-                        break;
-                    }
-                }
-                if (account_idx == -1)
-                    handle_error("Could not find current client in client list.\n");
-                for (int i = account_idx; i < idx-1; i++)
-                    args->client_data[i] = args->client_data[i+1];
-                *(args->clients_len) -= 1;
+
+                free_element(client_data, clients_list, free_client_item);
+
                 pthread_mutex_unlock(client_list_mutex);
                 pthread_exit(NULL);
             }
             default: {
-                send_error(client_data.client_fd, "Server received unknown operation code.");
+                send_error(client_data->client_fd, "Server received unknown operation code.");
             }
         }
     }
 }
 
-int login_user(struct client_data *client_data, char *buf) {
+//client_list
+int login_user(struct client_data *client_data, char *buf, struct linked_list **head) {
     int index;
     FILE *accounts;
     char *res;
@@ -350,6 +389,15 @@ int login_user(struct client_data *client_data, char *buf) {
             if (res == NULL)
                 handle_error("Failed to read account password from account file.\n");
             if (!strcmp(res, account_password)) {
+                struct linked_list *curr = *head;
+                while (curr != NULL) {
+                    struct client_data *cldata = (struct client_data *)curr->element;
+                    if (cldata != NULL && cldata->client_id == i) {
+                        send_error(client_data->client_fd, "That user is already logged in.");
+                        return -1;
+                    }
+                    curr = curr->next;
+                }
                 index = i;
                 break;
             }
@@ -402,78 +450,71 @@ int register_user(struct client_data *client_data, char *buf) {
             return -1;
         }
     }
+
     if (fprintf(accounts, "%s:%s\n", account_name, account_password) < 0)
         handle_error("Failed to write new data to the accounts file.\n");
     if (fclose(accounts) != 0)
         handle_error("Failed to close accounts file.\n");
+
     send_confirm(client_data->client_fd);
     return index;
 }
 
-long create_chat(struct client_data *client_data, struct chat_list **head) {
-    struct chat_list *curr;
-    if (*head == NULL) {
-        *head = malloc(sizeof(struct chat_list));
-        if (*head == NULL)
-            handle_error("Failed to allocate memory.\n");
-        curr = *head;
-    }
-    else {
-        curr = *head;
-        while (curr->next != NULL)
-            curr = curr->next;
-        curr->next = malloc(sizeof(struct chat_list));
-        if (curr->next == NULL)
-            handle_error("Failed to allocate memory.\n");
-        curr = curr->next;
-    }
-    curr->chat_id = random();
-    curr->contents = NULL;
-    curr->next_member = 1;
-    curr->members[0] = client_data->client_id;
-    curr->next = NULL;
+//chat_list
+struct chat_data *create_chat(struct client_data *client_data, struct linked_list **head) {
+    struct chat_data *tmp;
+
+    if ((tmp = malloc(sizeof(struct chat_data))) == NULL)
+        handle_error("Failed to allocate memory.\n");
+    tmp->chat_id = random();
+    tmp->texts = NULL;
+    tmp->next_member = 1;
+    tmp->members[0] = client_data->client_id;
+
+    add_node(tmp, sizeof(struct chat_data), head);
 
     send_confirm(client_data->client_fd);
-    return curr->chat_id;
+    return tmp;
 }
 
-long join_chat(struct client_data *client_data, struct chat_list **head) {
-    long chat_id = recv_u64(client_data->client_fd);
+//chat_list
+struct chat_data *join_chat(struct client_data *client_data, char *buf, struct linked_list **head) {
+    recv_str(client_data->client_fd, buf);
+    struct chat_data *current_chat;
+    struct linked_list *curr = *head;
+    long chat_id = atol(buf);
     int found = 0;
-    if (*head != NULL) {
-        struct chat_list *curr = *head;
-        while (curr != NULL) {
-            if (curr->chat_id == chat_id) {
-                found = 1;
-                if (curr->next_member < MAX_MEMBERS) {
-                    curr->members[curr->next_member] = client_data->client_id;
-                    curr->next_member++;
-                    break;
-                }
-                else {
-                    send_error(client_data->client_fd, "The chat is full.");
-                    return -1;
-                }
+
+    if (curr == NULL)
+        return NULL;
+    while (curr != NULL) {
+        current_chat = (struct chat_data *)curr->element;
+        if (current_chat->chat_id == chat_id) {
+            found = 1;
+            if (current_chat->next_member < MAX_MEMBERS) {
+                current_chat->members[current_chat->next_member] = client_data->client_id;
+                current_chat->next_member++;
+                break;
             }
-            curr = curr->next;
+            else {
+                send_error(client_data->client_fd, "The chat is full.");
+                return NULL;
+            }
         }
+        curr = curr->next;
     }
     if (found == 1) {
         send_confirm(client_data->client_fd);
-        return chat_id;
+        return current_chat;
     }
-    else {
+    else
         send_error(client_data->client_fd, "Could not find a chat with that ID.");
-        return -1;
-    }
+    return NULL;
 }
 
-long leave_chat(struct client_data *client_data, struct chat_list **head) {
-    struct chat_list *curr = *head;
-    while (curr && curr->chat_id != client_data->chat_id)
-        curr = curr->next;
-    if (curr == NULL)
-        handle_error("Could not find a chat with that ID.\n");
+//chat list used here
+struct chat_data *leave_chat(struct client_data *client_data, struct linked_list **head) {
+    struct chat_data *curr = client_data->client_chat;
     for (int i = 0; i < curr->next_member; i++) {
         if (curr->members[i] == client_data->client_id) {
             for (int j = i; j < curr->next_member-1; j++)
@@ -482,62 +523,59 @@ long leave_chat(struct client_data *client_data, struct chat_list **head) {
         }
     }
     if (--(curr->next_member) == 0) {
-        free_chat(curr, head);
+        free_element(curr, head, free_chat_item);
     }
     send_confirm(client_data->client_fd);
-    return -1;
+    return NULL;
 }
 
-void recv_message(struct client_data *client_data, char *buf, struct chat_list **head) {
-    struct chat_list *curr = *head;
-
-    while (curr && curr->chat_id != client_data->chat_id)
-        curr = curr->next;
-    if (curr == NULL)
-        handle_error("Could not find a chat with that ID.\n");
-
+void recv_message(struct client_data *client_data, char *buf) {
     recv_str(client_data->client_fd, buf);
-    add_text(curr, buf, client_data->client_id);
+    add_text(client_data->client_chat, buf, client_data->client_id);
     send_confirm(client_data->client_fd);
 }
 
-void send_messages(struct client_data *client_data, char *buf, struct chat_list **head) {
-    struct chat_list *curr = *head;
-    struct text_list *texts;
+void send_messages(struct client_data *client_data, char *buf) {
+    struct text_data *texts;
+    struct linked_list *curr;
     char tmp[BUF_SIZE];
     char username[NAME_LEN];
 
-    while (curr && curr->chat_id != client_data->chat_id)
-        curr = curr->next;
-    if (curr == NULL)
-        handle_error("Could not find a chat with that ID.\n");
-
-    texts = curr->contents;
-    strcpy(buf, "");
-    while (texts != NULL) {
-        get_username(texts->author, username);
-        strcat(buf, username);
+    curr = *((client_data->client_chat)->texts);
+    strncpy(buf, "", BUF_SIZE);
+    while (curr != NULL) {
+        texts = (struct text_data *)curr->element;
+        get_username(texts->author_id, username);
+        strncat(buf, username, BUF_SIZE);
         strftime(tmp, BUF_SIZE, " (%b %d %H:%M):\n", localtime(&(texts->date)));
-        strcat(buf, tmp);
-        strcat(buf, texts->text);
-        strcat(buf, "\n");
-        texts = texts->next;
+        strncat(buf, tmp, BUF_SIZE);
+        strncat(buf, texts->text, BUF_SIZE);
+        strncat(buf, "\n", BUF_SIZE);
+        curr = curr->next;
     }
     send_str(client_data->client_fd, buf);
 }
 
-void send_chats(struct client_data *client_data, char *buf, struct chat_list **head) {
+//Use chat list here
+void send_chats(struct client_data *client_data, char *buf, struct linked_list **head) {
     char tmp[BUF_SIZE];
-    struct chat_list *curr = *head;
-    strcpy(buf, "");
+    struct chat_data *chat_data;
+    struct linked_list *curr = *head;
+
+    strncpy(buf, "", BUF_SIZE);
     while (curr != NULL) {
-        sprintf(tmp, "Chat ID: %ld\n", curr->chat_id);
-        strcat(buf, tmp);
-        strcat(buf, "Members:\n\t");
-        for (int i = 0; i < curr->next_member; i++) {
-            get_username(curr->members[i], tmp);
-            strcat(buf, tmp);
-            strcat(buf, (i == curr->next_member - 1) ? "\n" : " ");
+        chat_data = (struct chat_data *)(curr->element);
+        if (chat_data == NULL) {
+            continue;
+        }
+        else {
+            snprintf(tmp, BUF_SIZE, "Chat ID: %ld\nMembers:\n\t", chat_data->chat_id);
+            strncat(buf, tmp, BUF_SIZE);
+            for (int i = 0; i < chat_data->next_member; i++) {
+                get_username(chat_data->members[i], tmp);
+                strncat(buf, tmp, BUF_SIZE);
+                strncat(buf, (i == chat_data->next_member - 1) ? "\n" : " ", BUF_SIZE);
+            }
         }
         curr = curr->next;
     }
@@ -561,19 +599,31 @@ void get_username(int client_id, char *buf) {
         handle_error("Failed to close accounts file.\n");
 }
 
-void add_text(struct chat_list *item, char *msg, int author_id) {
-    struct text_list *curr, *tmp;
+void add_text(struct chat_data *chat_data, char *msg, int author_id) {
+    struct text_data *tmp;
 
-    if ((tmp = malloc(sizeof(struct text_list))) == NULL)
+    if ((tmp = malloc(sizeof(struct text_data))) == NULL)
         handle_error("Failed to allocate memory.\n");
-    tmp->author = author_id;
+    tmp->author_id = author_id;
     tmp->date = time(NULL);
     tmp->text = strdup(msg);
+
+    add_node(tmp, sizeof(struct text_data), chat_data->texts);
+}
+
+void add_node(void *elem, size_t elem_len, struct linked_list **head) {
+    if (elem == NULL || elem_len <= 0)
+        return;
+    struct linked_list *tmp = NULL, *curr;
+    if ((tmp = malloc(sizeof(struct linked_list))) == NULL)
+        handle_error("Failed to allocate memory.\n");
+    tmp->element = elem;
+    tmp->element_len = elem_len;
     tmp->next = NULL;
 
-    curr = item->contents;
+    curr = *head;
     if (curr == NULL)
-        item->contents = tmp;
+        *head = tmp;
     else {
         while (curr->next != NULL)
             curr = curr->next;
@@ -581,40 +631,72 @@ void add_text(struct chat_list *item, char *msg, int author_id) {
     }
 }
 
-void free_texts(struct chat_list *item) {
-    if (item == NULL)
-        return;
-    struct text_list *curr = item->contents, *next;
+bool contains_element(void *elem, size_t elem_len, struct linked_list **head) {
+    if (elem == NULL || elem_len <= 0 || head == NULL)
+        return false;
+    struct linked_list *curr = *head;
     while (curr != NULL) {
-        next = curr->next;
-        free(curr->text);
-        free(curr);
-        curr = next;
+        if (curr->element_len == elem_len && memcmp(elem, curr->element, elem_len) == 0)
+            return true;
+        curr = curr->next;
     }
+    return false;
 }
 
-void free_chat(struct chat_list *item, struct chat_list **head) {
-    struct chat_list *prev = NULL, *curr = *head;
-    while (curr && curr != item) {
+void free_element(void *elem, struct linked_list **head, void (*cleaner_function)(void *elem)) {
+    if (head == NULL || elem == NULL)
+        return;
+    struct linked_list *curr = *head, *prev = NULL;
+    while (curr != NULL && curr->element != elem) {
         prev = curr;
         curr = curr->next;
     }
+    if (curr->element != elem)
+        return;
     if (prev == NULL)
         *head = curr->next;
     else
         prev->next = curr->next;
-    free_texts(curr);
+    if (cleaner_function != NULL)
+        cleaner_function(curr->element);
+    free(curr->element);
     free(curr);
 }
 
-void handle_error(const char *msg) {
-    char buf[BUF_SIZE];
-    strcpy(buf, msg);
-    if (errno != 0) {
-        strcat(buf, ":");
-        strcat(buf, strerror(errno));
-        errno = 0;
+void free_list(struct linked_list **head, void (*cleaner_function)(void *elem)) {
+    if (head == NULL)
+        return;
+    struct linked_list *curr = *head, *next;
+    while (curr != NULL) {
+        next = curr->next;
+        if (cleaner_function != NULL)
+            cleaner_function(curr->element);
+        free(curr->element);
+        free(curr);
+        curr = next;
     }
-    fputs(buf, stderr);
-    exit(EXIT_FAILURE);
+    *head = NULL;
+}
+
+void free_text_item(void *elem) {
+    if (elem == NULL)
+        return;
+    struct text_data *text_data = (struct text_data *)elem;
+    free(text_data->text);
+}
+
+void free_chat_item(void *elem) {
+    if (elem == NULL)
+        return;
+    struct chat_data *chat_data = (struct chat_data *)elem;
+    free_list(chat_data->texts, free_text_item);
+}
+
+void free_client_item(void *elem) {
+    if (elem == NULL)
+        return;
+    struct client_data *client_data = (struct client_data *)elem;
+    // In the future -> connection cleanup;
+    if (close(client_data->client_fd) != 0)
+        handle_error("Failed to close a connection.\n");
 }

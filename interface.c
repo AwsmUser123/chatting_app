@@ -233,14 +233,13 @@ int loggedin_screen() {
     return selected+1;
 }
 
-long join_chat() {
+void join_chat(char *chat_id) {
     int c;
     size_t id_len, offset_id, max_len;
     c = 0;
     id_len = 0;
     offset_id = 0;
-    max_len = 10;
-    char id[12] = {0};
+    max_len = 20;
 
     do {
         clear();
@@ -249,22 +248,21 @@ long join_chat() {
             print_middle(5, "ID may not be empty.");
 
         if (isdigit(c) && !(id_len == 0 && c == '0') && id_len <= max_len) {
-            id[id_len++] = (char)c;
-            id[id_len] = '\0';
+            chat_id[id_len++] = (char)c;
+            chat_id[id_len] = '\0';
         }
         else if(c == KEY_BACKSPACE && id_len > 0) {
             id_len--;
-            id[id_len] = '\0';
+            chat_id[id_len] = '\0';
         }
         mvprintw(7, 3, "Please enter the ID of the chat you would like to join:");
-        mvprintw(8, 3, "> %s", id + offset_id);
+        mvprintw(8, 3, "> %s", chat_id + offset_id);
 
         attron(COLOR_PAIR(1));
         print_frame();
         attroff(COLOR_PAIR(1));
         refresh();
     } while ((c = getch()) != '\n' || id_len == 0);
-    return atol(id);
 }
 
 int chats_screen() {

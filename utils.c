@@ -21,7 +21,7 @@ ssize_t read_all(int fd, void *buf, size_t count) {
         p += received;
         count -= received;
     }
-    return 0; //return count
+    return 0;
 }
 
 ssize_t write_all(int fd, const void *buf, size_t count) {
@@ -35,7 +35,7 @@ ssize_t write_all(int fd, const void *buf, size_t count) {
         p += written;
         count -= written;
     }
-    return 0; //return count
+    return 0;
 }
 
 void send_byte(int fd, char byte) {
@@ -50,37 +50,26 @@ char recv_byte(int fd) {
     return res;
 }
 
-void send_u64(int fd, uint64_t data) {
-    if (write_all(fd, &data, 8) == -1)
-        handle_error("Failed to send data to remote destination.\n");
-}
-
-uint64_t recv_u64(int fd) {
-    uint64_t res;
-    if (read_all(fd, &res, 8) == -1)
-        handle_error("Failed to read data from remote source.\n");
-    return res;
-}
-
 void send_confirm(int fd) {
     send_byte(fd, CMD_OK);
 } 
 
 void send_str(int fd, const char *src) {
-    int data_len;
-    data_len = strlen(src)+1;
+    int data_len = strlen(src)+1;
+    data_len = htonl(data_len);
     if (write_all(fd, &data_len, 4) == -1)
-        handle_error("Failed to send the data to the client.\n");
+        handle_error("Failed to send the data to the remote destination.\n");
     if (write_all(fd, src, data_len) == -1)
-        handle_error("Failed to send the data to the client.\n");
+        handle_error("Failed to send the data to the remote destination.\n");
 }
 
 void recv_str(int fd, char *dst) {
     int data_len;
     if (read_all(fd, &data_len, 4) == -1)
-        handle_error("Failed to read the data from the server.\n");
+        handle_error("Failed to read data from remote source.\n");
+    data_len = ntohl(data_len);
     if (read_all(fd, dst, data_len) == -1)
-        handle_error("Failed to read the data from the server.\n");
+        handle_error("Failed to read data from remote source.\n");
 }
 
 void send_error(int fd, const char *msg) {

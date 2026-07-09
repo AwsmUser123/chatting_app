@@ -107,10 +107,9 @@ int main() {
                         break;
                     }
                     case 2: {
-                        long chat_id;
                         send_byte(server, CMD_JOINCHAT);
-                        chat_id = join_chat();
-                        send_u64(server, chat_id);
+                        join_chat(buf);
+                        send_str(server, buf);
                         if (handle_response(server, buf) == 0)
                             current_state = IN_CHAT;
                         break;

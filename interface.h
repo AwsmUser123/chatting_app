@@ -13,7 +13,7 @@ void credentials_screen(char *, char *);
 
 int loggedin_screen();
 
-long join_chat();
+void join_chat(char *);
 
 int chats_screen();
 

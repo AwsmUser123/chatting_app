@@ -5,10 +5,6 @@ void send_byte(int, char);
 
 char recv_byte(int);
 
-void send_u64(int, uint64_t);
-
-uint64_t recv_u64(int);
-
 void send_confirm(int);
 
 void send_str(int, const char *);
