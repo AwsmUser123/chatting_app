@@ -55,17 +55,17 @@ void send_confirm(int fd) {
 } 
 
 void send_str(int fd, const char *src) {
-    int data_len = strlen(src)+1;
-    data_len = htonl(data_len);
-    if (write_all(fd, &data_len, 4) == -1)
+    size_t data_len = strlen(src)+1;
+    uint32_t serialized_len = htonl(data_len);
+    if (write_all(fd, &serialized_len, sizeof(size_t)) == -1)
         handle_error("Failed to send the data to the remote destination.\n");
     if (write_all(fd, src, data_len) == -1)
         handle_error("Failed to send the data to the remote destination.\n");
 }
 
 void recv_str(int fd, char *dst) {
-    int data_len;
-    if (read_all(fd, &data_len, 4) == -1)
+    size_t data_len;
+    if (read_all(fd, &data_len, sizeof(size_t)) == -1)
         handle_error("Failed to read data from remote source.\n");
     data_len = ntohl(data_len);
     if (read_all(fd, dst, data_len) == -1)

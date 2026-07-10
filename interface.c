@@ -8,6 +8,8 @@
 
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+SCREEN *scr = NULL;
+
 void print_frame() {
     int i, j;
     attron(COLOR_PAIR(1));
@@ -30,7 +32,9 @@ void print_middle(int y, char *str) {
 }
 
 void initialize_ncurses() {
-    initscr();
+    scr = newterm(NULL, stdout, stdin);
+    set_term(scr);
+
     start_color();
     cbreak();
     noecho();
@@ -39,6 +43,11 @@ void initialize_ncurses() {
 
     init_pair(1, COLOR_WHITE, COLOR_WHITE);
     init_pair(2, COLOR_YELLOW, COLOR_WHITE);
+}
+
+void end_ncurses() {
+    endwin();
+    delscreen(scr);
 }
 
 void display_error(const char *str) {
@@ -237,6 +246,7 @@ void join_chat(char *chat_id) {
     int c;
     size_t id_len, offset_id, max_len;
     c = 0;
+    chat_id[0] = '\0';
     id_len = 0;
     offset_id = 0;
     max_len = 20;
@@ -427,5 +437,4 @@ void goodbye_screen() {
     print_middle(13, "Press ENTER to continue.");
     print_frame();
     refresh();
-    endwin();
 }

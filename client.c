@@ -60,10 +60,10 @@ int main() {
 
                         credentials_screen(account_name, account_password);
 
-                        strcpy(buf, "");
-                        strcat(buf, account_name);
-                        strcat(buf, ":");
-                        strcat(buf, account_password);
+                        strncpy(buf, "", BUF_SIZE-1);
+                        strncat(buf, account_name, BUF_SIZE-1);
+                        strncat(buf, ":", BUF_SIZE-1);
+                        strncat(buf, account_password, BUF_SIZE-1);
 
                         send_byte(server, CMD_REGISTER);
                         send_str(server, buf);
@@ -77,11 +77,11 @@ int main() {
 
                         credentials_screen(account_name, account_password);
 
-                        strcpy(buf, "");
-                        strcat(buf, account_name);
-                        strcat(buf, ":");
-                        strcat(buf, account_password);
-
+                        strncpy(buf, "", BUF_SIZE-1);
+                        strncat(buf, account_name, BUF_SIZE-1);
+                        strncat(buf, ":", BUF_SIZE-1);
+                        strncat(buf, account_password, BUF_SIZE-1);
+                        
                         send_byte(server, CMD_LOGIN);
                         send_str(server, buf);
                         if (handle_response(server, buf) == 0)
@@ -175,17 +175,19 @@ int main() {
     }
 
     goodbye_screen();
+    end_ncurses();
+
     return 0;
 }
 
 int handle_response(int server_fd, char *err_str) {
     switch (recv_byte(server_fd)) {
-        case 0x00: {
+        case CMD_ERROR: {
             recv_str(server_fd, err_str);
             display_error(err_str);
             return 1;
         }
-        case 0x02: {
+        case CMD_OK: {
             return 0;
         }
         default: {
@@ -197,13 +199,15 @@ int handle_response(int server_fd, char *err_str) {
 
 void handle_error(const char *msg) {
     char buf[BUF_SIZE];
-    strcpy(buf, msg);
+    strncpy(buf, msg, BUF_SIZE-1);
+
     if (errno != 0) {
-        strcat(buf, "\n");
-        strcat(buf, strerror(errno));
+        strncat(buf, "\n", BUF_SIZE-1);
+        strncat(buf, strerror(errno), BUF_SIZE-1);
         errno = 0;
     }
+
     display_error(buf);
-    endwin();
+    end_ncurses();
     exit(EXIT_FAILURE);
 }

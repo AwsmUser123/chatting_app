@@ -51,7 +51,14 @@ struct arg_data {
     pthread_mutex_t *chat_list_mutex;
 };
 
-void cleanup                    (int, void *);
+struct thread_data {
+    pthread_t *threads;
+    size_t *threads_len;
+};
+
+void *safe_malloc               (size_t);
+void cleanup                    (void *);
+void join_threads               (void *);
 void *accept_connections        (void *);
 void *handle_client             (void *);
 int login_user                  (struct client_data *, char *, struct linked_list **);
@@ -82,10 +89,12 @@ int main() {
     printf("Started the server.\n");
     printf("Type 'quit' to stop this program.\n");
 
-    while (strcmp(buf, "quit"))
+    while (strncmp(buf, "quit", BUF_SIZE))
         if (scanf("%s", buf) < 1)
             handle_error("Failed to read input from user.\n");
 
+    if (pthread_cancel(worker_thread) != 0)
+        handle_error("Failed to cancel a thread.\n");
     if (pthread_join(worker_thread, NULL) != 0)
         handle_error("Failed to join a thread.\n");
 
@@ -93,17 +102,43 @@ int main() {
     return 0;
 }
 
-void cleanup(int code, void *args) {
-    code = (code == 0) ? 0 : code; //to avoid compiler warnings
-    args = (args == NULL) ? NULL : args; //to avoid compiler warnings
-    /*
-    struct chat_list **head = (struct chat_list **)arg;
-    struct chat_list *curr = *head;
-    while (curr) {
-        free_chat(curr, head);
-        curr = curr->next;
+void *safe_malloc(size_t size) {
+    void *res = malloc(size);
+    if (res == NULL)
+        handle_error("Failed to allocate memory.\n");
+    return res;
+}
+
+void cleanup(void *argp) {
+    if (argp == NULL)
+        return;
+    struct arg_data *args = (struct arg_data *)argp;
+
+    //Client connection cleanup
+    args->client_data = NULL;
+    free_list(args->clients_headptr, free_client_item);
+    free_list(args->chats_headptr, free_chat_item);
+
+    pthread_mutex_destroy(args->account_list_mutex);
+    pthread_mutex_destroy(args->client_list_mutex);
+    pthread_mutex_destroy(args->chat_list_mutex);
+
+    free(args->account_list_mutex);
+    free(args->client_list_mutex);
+    free(args->chat_list_mutex);
+}
+
+void join_threads(void *argp) {
+    if (argp == NULL)
+        return;
+    struct thread_data *args = (struct thread_data *)argp;
+    
+    for (size_t i = 0; i < *(args->threads_len); i++) {
+        if (pthread_cancel(args->threads[i]) != 0)
+            handle_error("Failed to cancel a thread.\n");
+        if (pthread_join(args->threads[i], NULL) != 0)
+            handle_error("Failed to join a thread.\n");
     }
-    */
 }
 
 void handle_error(const char *msg) {
@@ -122,28 +157,33 @@ void *accept_connections(void *argp) {
     struct sockaddr_in addr, tmp_addr;
     socklen_t tmp_addrlen;
     int server, client;
-    int i, thread_count;
+
     struct client_data *cl_data;
     struct linked_list *chat_list, *client_list;
     struct arg_data args;
-    pthread_t threads[QUEUE_LEN];
-    pthread_mutex_t mutex_accounts, mutex_clients, mutex_chats;
 
-    i = 0;
+    size_t thread_count;
+    pthread_t threads[QUEUE_LEN];
+    struct thread_data thread_data;
+
+    pthread_cleanup_push(cleanup, (void *)&args);
+    pthread_cleanup_push(join_threads, (void *)&thread_data);
+
     thread_count = 0;
     chat_list = NULL, client_list = NULL;
 
+    thread_data.threads = threads;
+    thread_data.threads_len = &thread_count;
+
     args.clients_headptr = &client_list;
     args.chats_headptr = &chat_list;
-    args.account_list_mutex = &mutex_accounts;
-    args.client_list_mutex = &mutex_clients;
-    args.chat_list_mutex = &mutex_chats;
+    args.account_list_mutex = safe_malloc(sizeof(pthread_mutex_t));
+    args.client_list_mutex = safe_malloc(sizeof(pthread_mutex_t));
+    args.chat_list_mutex = safe_malloc(sizeof(pthread_mutex_t));
 
     pthread_mutex_init(args.account_list_mutex, NULL);
     pthread_mutex_init(args.client_list_mutex, NULL);
     pthread_mutex_init(args.chat_list_mutex, NULL);
-
-    on_exit(cleanup, (void *)&args); //THIS CHANGED
 
     server = socket(AF_INET, SOCK_STREAM, 0);
     if (server == -1)
@@ -160,7 +200,7 @@ void *accept_connections(void *argp) {
     if (listen(server, QUEUE_LEN) == -1)
         handle_error("Failed to mark the socket as listening.\n");
 
-    while (i < QUEUE_LEN && thread_count < QUEUE_LEN) {
+    while (thread_count < QUEUE_LEN) {
         tmp_addrlen = sizeof(struct sockaddr_in);
         client = accept(server, (struct sockaddr *)(&tmp_addr), &tmp_addrlen);
         if (client == -1)
@@ -168,8 +208,7 @@ void *accept_connections(void *argp) {
 
         pthread_mutex_lock(args.client_list_mutex);
 
-        if ((cl_data = malloc(sizeof(struct client_data))) == NULL)
-            handle_error("Failed to allocate memory.\n");
+        cl_data = safe_malloc(sizeof(struct client_data));
         
         cl_data->client_addr = tmp_addr;
         cl_data->client_addrlen = tmp_addrlen;
@@ -177,6 +216,7 @@ void *accept_connections(void *argp) {
         cl_data->client_id = -1;
         cl_data->client_chat = NULL;
         args.client_data = cl_data;
+        add_node(args.client_data, sizeof(struct client_data), args.clients_headptr);
 
         pthread_mutex_unlock(args.client_list_mutex);
 
@@ -185,12 +225,8 @@ void *accept_connections(void *argp) {
         printf("Successfully accepted an incoming connection.\n");
     }
 
-    for (int j = 0; j < thread_count; j++)
-        if (pthread_join(threads[j], NULL) != 0)
-            handle_error("Failed to join a thread.\n");
-    //pthread_mutex_destroy(args.account_list_mutex);
-    //pthread_mutex_destroy(args.client_list_mutex);
-    //pthread_mutex_destroy(args.chat_list_mutex);
+    pthread_cleanup_pop(1);
+    pthread_cleanup_pop(1);
     return NULL;
 } 
 
@@ -261,7 +297,7 @@ void *handle_client(void *argp) {
                 else {
                     pthread_mutex_lock(chat_list_mutex);
 
-                    client_data->client_chat = create_chat(client_data, clients_list);
+                    client_data->client_chat = create_chat(client_data, chats_list);
 
                     pthread_mutex_unlock(chat_list_mutex);
                 }
@@ -275,7 +311,7 @@ void *handle_client(void *argp) {
                 else {
                     pthread_mutex_lock(chat_list_mutex);
 
-                    client_data->client_chat = join_chat(client_data, buf, clients_list);
+                    client_data->client_chat = join_chat(client_data, buf, chats_list);
 
                     pthread_mutex_unlock(chat_list_mutex);
                 }
@@ -369,13 +405,13 @@ int login_user(struct client_data *client_data, char *buf, struct linked_list **
         send_error(client_data->client_fd, "Failed to read account name from client.\n");
         return -1;
     }
-    strcpy(account_name, res);
+    strncpy(account_name, res, NAME_LEN-1);
     res = strtok(NULL, ":\n");
     if (res == NULL) {
         send_error(client_data->client_fd, "Failed to read account password from client.\n");
         return -1;
     }
-    strcpy(account_password, res);
+    strncpy(account_password, res, PASS_LEN-1);
 
     if ((accounts = fopen("accounts.txt", "r")) == NULL)
         handle_error("Failed to open accounts file.\n");
@@ -384,15 +420,17 @@ int login_user(struct client_data *client_data, char *buf, struct linked_list **
         res = strtok(buf, ":\n");
         if (res == NULL)
             handle_error("Failed to read account name from account file.\n");
-        if (!strcmp(res, account_name)) {
+        if (strncmp(res, account_name, NAME_LEN) == 0) {
             res = strtok(NULL, ":\n");
             if (res == NULL)
                 handle_error("Failed to read account password from account file.\n");
-            if (!strcmp(res, account_password)) {
+            if (strncmp(res, account_password, PASS_LEN) == 0) {
                 struct linked_list *curr = *head;
                 while (curr != NULL) {
                     struct client_data *cldata = (struct client_data *)curr->element;
                     if (cldata != NULL && cldata->client_id == i) {
+                        if (fclose(accounts) != 0)
+                            handle_error("Failed to close accounts file.\n");
                         send_error(client_data->client_fd, "That user is already logged in.");
                         return -1;
                     }
@@ -402,6 +440,8 @@ int login_user(struct client_data *client_data, char *buf, struct linked_list **
                 break;
             }
             else {
+                if (fclose(accounts) != 0)
+                    handle_error("Failed to close accounts file.\n");
                 send_error(client_data->client_fd, "Wrong password.");
                 return -1;
             }
@@ -430,13 +470,13 @@ int register_user(struct client_data *client_data, char *buf) {
         send_error(client_data->client_fd, "Failed to read account name from client.\n");
         return -1;
     }
-    strcpy(account_name, res);
+    strncpy(account_name, res, NAME_LEN-1);
     res = strtok(NULL, ":\n");
     if (res == NULL) {
         send_error(client_data->client_fd, "Failed to read account password from client.\n");
         return -1;
     }
-    strcpy(account_password, res);
+    strncpy(account_password, res, PASS_LEN-1);
 
     if ((accounts = fopen("accounts.txt", "a+")) == NULL)
         handle_error("Failed to open accounts file.\n");
@@ -445,7 +485,9 @@ int register_user(struct client_data *client_data, char *buf) {
         res = strtok(buf, ":\n");
         if (res == NULL)
             handle_error("Failed to read account name from account file.\n");
-        if (!strcmp(res, account_name)) {
+        if (strncmp(res, account_name, NAME_LEN) == 0) {
+            if (fclose(accounts) != 0)
+                handle_error("Failed to close accounts file.\n");
             send_error(client_data->client_fd, "Account with that username already exists.");
             return -1;
         }
@@ -464,10 +506,11 @@ int register_user(struct client_data *client_data, char *buf) {
 struct chat_data *create_chat(struct client_data *client_data, struct linked_list **head) {
     struct chat_data *tmp;
 
-    if ((tmp = malloc(sizeof(struct chat_data))) == NULL)
-        handle_error("Failed to allocate memory.\n");
+    tmp = safe_malloc(sizeof(struct chat_data));
+    
     tmp->chat_id = random();
-    tmp->texts = NULL;
+    tmp->texts = safe_malloc(sizeof(struct linked_list **));
+    *(tmp->texts) = NULL;
     tmp->next_member = 1;
     tmp->members[0] = client_data->client_id;
 
@@ -538,11 +581,14 @@ void recv_message(struct client_data *client_data, char *buf) {
 void send_messages(struct client_data *client_data, char *buf) {
     struct text_data *texts;
     struct linked_list *curr;
+    struct chat_data *chat_data;
     char tmp[BUF_SIZE];
     char username[NAME_LEN];
 
-    curr = *((client_data->client_chat)->texts);
     strncpy(buf, "", BUF_SIZE);
+    chat_data = client_data->client_chat;
+    curr = (chat_data->texts == NULL) ? NULL : *(chat_data->texts);
+
     while (curr != NULL) {
         texts = (struct text_data *)curr->element;
         get_username(texts->author_id, username);
@@ -602,21 +648,22 @@ void get_username(int client_id, char *buf) {
 void add_text(struct chat_data *chat_data, char *msg, int author_id) {
     struct text_data *tmp;
 
-    if ((tmp = malloc(sizeof(struct text_data))) == NULL)
-        handle_error("Failed to allocate memory.\n");
+    tmp = safe_malloc(sizeof(struct text_data));
+
     tmp->author_id = author_id;
     tmp->date = time(NULL);
-    tmp->text = strdup(msg);
+    tmp->text = strndup(msg, BUF_SIZE-1);
 
     add_node(tmp, sizeof(struct text_data), chat_data->texts);
 }
 
 void add_node(void *elem, size_t elem_len, struct linked_list **head) {
-    if (elem == NULL || elem_len <= 0)
+    if (head == NULL || elem == NULL || elem_len <= 0)
         return;
+
     struct linked_list *tmp = NULL, *curr;
-    if ((tmp = malloc(sizeof(struct linked_list))) == NULL)
-        handle_error("Failed to allocate memory.\n");
+    tmp = safe_malloc(sizeof(struct linked_list));
+    
     tmp->element = elem;
     tmp->element_len = elem_len;
     tmp->next = NULL;
@@ -647,12 +694,14 @@ void free_element(void *elem, struct linked_list **head, void (*cleaner_function
     if (head == NULL || elem == NULL)
         return;
     struct linked_list *curr = *head, *prev = NULL;
+
     while (curr != NULL && curr->element != elem) {
         prev = curr;
         curr = curr->next;
     }
-    if (curr->element != elem)
+    if (curr == NULL || curr->element != elem)
         return;
+
     if (prev == NULL)
         *head = curr->next;
     else
@@ -690,13 +739,13 @@ void free_chat_item(void *elem) {
         return;
     struct chat_data *chat_data = (struct chat_data *)elem;
     free_list(chat_data->texts, free_text_item);
+    free(chat_data->texts);
 }
 
 void free_client_item(void *elem) {
     if (elem == NULL)
         return;
     struct client_data *client_data = (struct client_data *)elem;
+    client_data->client_addrlen = 0; //???
     // In the future -> connection cleanup;
-    if (close(client_data->client_fd) != 0)
-        handle_error("Failed to close a connection.\n");
 }

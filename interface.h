@@ -3,6 +3,8 @@
 
 void initialize_ncurses();
 
+void end_ncurses();
+
 void display_error(const char *);
 
 void welcome_screen();
