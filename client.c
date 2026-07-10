@@ -15,11 +15,10 @@
 #include "utils.h"
 #include "interface.h"
 
-int handle_response(int, char *);
+int handle_response(conn_t *, char *);
 
 int main() {
-    struct sockaddr_in addr;
-    int server;
+    conn_t *server;
     char buf[BUF_SIZE];
     int response;
     enum state {
@@ -31,18 +30,7 @@ int main() {
     initialize_ncurses();
     welcome_screen();
 
-    server = socket(AF_INET, SOCK_STREAM, 0);
-    if (server == -1) {
-        handle_error("Socket creation failed.\n");
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(SERV_PORT);
-    if (inet_aton(SERV_ADDR, &(addr.sin_addr)) == 0) {
-        handle_error("Invalid server address.\n");
-    }
-    if (connect(server, (struct sockaddr *)(&addr), sizeof(addr)) == -1) {
-        handle_error("Failed to connect to server.\n");
-    }
+    server = create_client_conn(SERV_ADDR, SERV_PORT);
 
     send_byte(server, CMD_INIT);
     handle_response(server, buf);
@@ -174,16 +162,17 @@ int main() {
         }
     }
 
+    free_conn(server);
     goodbye_screen();
     end_ncurses();
 
     return 0;
 }
 
-int handle_response(int server_fd, char *err_str) {
-    switch (recv_byte(server_fd)) {
+int handle_response(conn_t *server, char *err_str) {
+    switch (recv_byte(server)) {
         case CMD_ERROR: {
-            recv_str(server_fd, err_str);
+            recv_str(server, err_str);
             display_error(err_str);
             return 1;
         }
