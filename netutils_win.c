@@ -1,5 +1,5 @@
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <ws2tcpip.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -107,7 +107,7 @@ conn_t *create_server_conn(const char *ip_string, const char *port) {
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
 
-    res = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
+    res = getaddrinfo(NULL, port, &hints, &result);
     if (res != 0) {
         printf("getaddrinfo failed with error: %d\n", res);
         free(connection);
@@ -124,7 +124,7 @@ conn_t *create_server_conn(const char *ip_string, const char *port) {
         return NULL;
     }
 
-    res = bind( listen_socket, result->ai_addr, (int)result->ai_addrlen);
+    res = bind(listen_socket, result->ai_addr, (int)result->ai_addrlen);
     if (res == SOCKET_ERROR) {
         printf("bind failed with error: %d\n", WSAGetLastError());
         freeaddrinfo(result);
@@ -136,7 +136,7 @@ conn_t *create_server_conn(const char *ip_string, const char *port) {
 
     freeaddrinfo(result);
 
-    res = listen(listen_socket, SOMAXCONN);
+    res = listen(listen_socket, QUEUE_LEN);
     if (res == SOCKET_ERROR) {
         printf("listen failed with error: %d\n", WSAGetLastError());
         closesocket(listen_socket);
