@@ -9,6 +9,12 @@
 #include "netutils.h"
 #include "utils.h"
 
+#if defined(_WIN32)
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
+
 void send_byte(conn_t *connection, char byte) {
     if (write_conn(connection, &byte, 1) == -1)
         handle_error("Failed to send data to remote destination.\n");
