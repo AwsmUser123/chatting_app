@@ -1,18 +1,13 @@
+#include <ncurses.h>
 #include <ctype.h>
-#include <curses.h>
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
 
 #include "codes.h"
 #include "constants.h"
 #include "utils.h"
+#include "netutils.h"
 #include "interface.h"
 
 int handle_response(conn_t *, char *);
@@ -27,6 +22,7 @@ int main() {
         IN_CHAT
     } current_state = LOGGED_OUT;
 
+    init_net();
     initialize_ncurses();
     welcome_screen();
 
@@ -162,9 +158,12 @@ int main() {
         }
     }
 
+    close_conn(server);
     free_conn(server);
+
     goodbye_screen();
     end_ncurses();
+    end_net();
 
     return 0;
 }

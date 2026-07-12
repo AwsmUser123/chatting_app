@@ -14,6 +14,7 @@
 #include "codes.h"
 #include "constants.h"
 #include "utils.h"
+#include "netutils.h"
 
 struct text_data {
     int author_id;
@@ -82,6 +83,7 @@ int main() {
     pthread_t worker_thread;
     char buf[BUF_SIZE] = {0};
 
+    init_net();
     if (pthread_create(&worker_thread, NULL, accept_connections, NULL) != 0)
         handle_error("Failed to create a thread for the client connection.\n");
 
@@ -97,6 +99,7 @@ int main() {
     if (pthread_join(worker_thread, NULL) != 0)
         handle_error("Failed to join a thread.\n");
 
+    end_net();
     printf("Server finished working.\n");
     return 0;
 }
@@ -131,6 +134,7 @@ void cleanup_server(void *argp) {
         return;
     conn_t *args = (conn_t *)argp;
 
+    close_conn(args);
     free_conn(args);
 }
 
@@ -193,7 +197,7 @@ void *accept_connections(void *argp) {
     pthread_mutex_init(args.chat_list_mutex, NULL);
 
     while (thread_count < QUEUE_LEN) {
-        client = create_accept_conn(server);
+        client = create_accept_conn();
         if (client == NULL)
             handle_error("Failed to create a client connection.\n");
 
@@ -204,13 +208,12 @@ void *accept_connections(void *argp) {
         cl_data->client_chat = NULL;
 
         pthread_mutex_lock(args.client_list_mutex);
-
-        args.client_data = cl_data;
-        add_node(args.client_data, sizeof(struct client_data), args.clients_headptr);
-
+        add_node(cl_data, sizeof(struct client_data), args.clients_headptr);
         pthread_mutex_unlock(args.client_list_mutex);
 
         accept_client_conn(client, server);
+
+        args.client_data = cl_data;
 
         if (pthread_create(&threads[thread_count++], NULL, handle_client, (void *)&args) != 0)
             handle_error("Failed to create a thread for the client connection.\n");
@@ -739,5 +742,6 @@ void free_client_item(void *elem) {
     if (elem == NULL)
         return;
     struct client_data *client_data = (struct client_data *)elem;
+    close_conn(client_data->conn);
     free_conn(client_data->conn);
 }
