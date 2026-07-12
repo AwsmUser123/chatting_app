@@ -45,7 +45,7 @@ conn_t *create_client_conn(const char *ip_string, const char *port) {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    res = getaddrinfo(ip_string, port, &hints, &result);
+    int res = getaddrinfo(ip_string, port, &hints, &result);
     if (res != 0) {
         printf("getaddrinfo failed: %d\n", res);
         free(connection);
@@ -53,6 +53,7 @@ conn_t *create_client_conn(const char *ip_string, const char *port) {
         return NULL;
     }
 
+    SOCKET connect_socket;
     for (ptr=result; ptr != NULL; ptr = ptr->ai_next) {
 
         connect_socket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
@@ -201,7 +202,7 @@ ssize_t read_conn(conn_t *connection, void *buf, size_t count) {
 ssize_t write_conn(conn_t *connection, const void *buf, size_t count) {
     if (connection == NULL)
         return -1;
-    char *p = buf;
+    const char *p = buf;
     while (count > 0) {
         ssize_t written = send(connection->socket, p, count, 0);
         if (written <= 0)
