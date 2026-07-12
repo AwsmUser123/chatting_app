@@ -17,4 +17,8 @@ void send_error(conn_t *, const char *);
 
 void handle_error(const char *);
 
+uint32_t htonl(uint32_t hostlong);
+
+uint32_t ntohl(uint32_t netlong);
+
 #endif
